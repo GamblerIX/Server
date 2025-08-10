@@ -1,0 +1,10 @@
+[launcher]
+executable_file = 'Client-Win64-Shipping.exe'
+cmd_line_args = '-fileopenlog'
+current_dir = 'D:\WuWaPS\Client\Client\Binaries\Win64'
+dll_list = ['D:\WuWaPS\Client\Client\Binaries\Win64\wicked-waifus-win-cn_beta_2_5_1-regular.dll']
+
+[environment]
+#vars = ['TESTVAR1=AAAAAA', 'TESTVAR2=AAAAAA']
+#use_system_env = true
+#environment_append = false

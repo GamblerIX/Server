@@ -1,0 +1,14 @@
+# 鸣潮服务端部署工具 Python 依赖
+# Wuthering Waves Server Deployment Tool Python Dependencies
+
+# 系统进程和资源监控
+psutil>=5.9.0
+
+# HTTP 请求库 (用于检查服务状态)
+requests>=2.28.0
+
+# 配置文件解析 (TOML格式)
+toml>=0.10.2
+
+# 数据库连接 (PostgreSQL)
+psycopg2-binary>=2.9.5
