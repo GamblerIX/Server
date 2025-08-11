@@ -14,7 +14,6 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
     from run import WuWaRun
     from status import WuWaStatus
-    from uninstall import WuWaUninstaller
     from stop import WuWaStop
     from check import WuWaEnvironmentChecker
 except ImportError as e:
@@ -36,7 +35,6 @@ class WuWaManager:
         
         self.runner = WuWaRun(self.project_root)
         self.status_checker = WuWaStatus(self.project_root)
-        self.uninstaller = WuWaUninstaller(self.project_root)
         self.stopper = WuWaStop(self.project_root)
         self.env_checker = WuWaEnvironmentChecker(self.project_root)
         
@@ -90,13 +88,12 @@ class WuWaManager:
 === 主菜单 ===
 1. 运行服务端
 2. 停止服务端
-3. 完全卸载项目
-4. 监控服务端状态
-5. 调试运行 (分窗口显示)
-6. 环境检查
-7. 退出主菜单
+3. 监控服务端状态
+4. 调试运行 (分窗口显示)
+5. 环境检查
+6. 退出主菜单
 
-请选择操作 (1-7): """
+请选择操作 (1-6): """
         return input(menu).strip()
         
     def show_server_info(self):
@@ -141,20 +138,7 @@ class WuWaManager:
         except Exception as e:
             print(f"[错误] 运行过程中发生错误: {e}")
             
-    def handle_uninstall(self):
-        print("\n=== 完全卸载项目 ===")
-        confirm = input("[警告] 这将删除所有项目文件和日志，确定要继续吗？(y/N): ").strip().lower()
-        if confirm in ['y', 'yes']:
-            try:
-                success = self.uninstaller.uninstall_all()
-                if success:
-                    print("[成功] 项目卸载完成")
-                else:
-                    print("[错误] 项目卸载失败")
-            except Exception as e:
-                print(f"[错误] 卸载过程中发生错误: {e}")
-        else:
-            print("取消卸载操作")
+
             
     def handle_status(self):
         print("\n=== 监控服务端状态 ===")
@@ -266,7 +250,7 @@ class WuWaManager:
                 try:
                     choice = self.show_menu()
                     
-                    if choice == '7':
+                    if choice == '6':
                         print("\n感谢使用鸣潮服务端一键运行工具！")
                         break
                     elif choice == '1':
@@ -274,18 +258,16 @@ class WuWaManager:
                     elif choice == '2':
                         self.handle_stop()
                     elif choice == '3':
-                        self.handle_uninstall()
-                    elif choice == '4':
                         self.handle_status()
-                    elif choice == '5':
+                    elif choice == '4':
                         self.handle_debug_run()
-                    elif choice == '6':
+                    elif choice == '5':
                         self.handle_env_check()
                     else:
-                        print("[错误] 无效选择，请输入 1-7 之间的数字")
+                        print("[错误] 无效选择，请输入 1-6 之间的数字")
                         
                     
-                    if choice != '7' and choice != '1':
+                    if choice != '6' and choice != '1':
                         input("\n按回车键继续...")
                         
                 except KeyboardInterrupt:
