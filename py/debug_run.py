@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-鸣潮服务端调试运行脚本
-
-功能：
-- 用Python打开五个PowerShell窗口
-- 每个窗口运行一个服务端可执行文件
-- 直接显示服务端原始输出，便于调试
-"""
 
 import os
 import sys
@@ -17,14 +8,13 @@ from pathlib import Path
 from datetime import datetime
 
 class WuWaDebugRun:
-    """鸣潮服务端调试运行类"""
     
     def __init__(self, project_root):
         self.project_root = Path(project_root)
         self.release_dir = self.project_root / "release"
-        # logs目录功能已移除
+
         
-        # 服务端配置（按启动顺序）
+
         self.servers = [
             {
                 "name": "wicked-waifus-config-server",
@@ -59,15 +49,13 @@ class WuWaDebugRun:
         ]
         
     def log_message(self, message, level="INFO"):
-        """记录日志消息"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] [{level}] {message}"
         
-        # 输出到控制台
+
         print(log_entry)
             
     def check_release_files(self):
-        """检查release目录下的可执行文件"""
         self.log_message("=== 检查服务端可执行文件 ===")
         
         if not self.release_dir.exists():
@@ -91,11 +79,9 @@ class WuWaDebugRun:
         return True
         
     def open_powershell_window(self, server):
-        """打开PowerShell窗口运行服务端"""
         exe_path = self.release_dir / server["exe"]
         
-        # 构建PowerShell命令
-        # 使用Start-Process打开新窗口，并保持窗口打开
+
         ps_command = f"""
         Set-Location '{self.release_dir}'
         Write-Host '=== {server['description']} ({server['name']}) ===' -ForegroundColor Green
@@ -114,7 +100,7 @@ class WuWaDebugRun:
         """
         
         try:
-            # 使用PowerShell打开新窗口
+
             cmd = [
                 "powershell",
                 "-NoExit",
@@ -122,7 +108,7 @@ class WuWaDebugRun:
                 ps_command
             ]
             
-            # 启动新的PowerShell窗口，确保进程完全独立
+
             process = subprocess.Popen(
                 cmd,
                 creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
@@ -141,10 +127,9 @@ class WuWaDebugRun:
             return None
             
     def run_debug_mode(self):
-        """运行调试模式"""
         self.log_message("=== 鸣潮服务端调试运行模式启动 ===")
         
-        # 检查可执行文件
+
         if not self.check_release_files():
             self.log_message("[错误] 可执行文件检查失败，无法启动调试模式", "ERROR")
             return False
@@ -173,7 +158,7 @@ class WuWaDebugRun:
         
         processes = []
         
-        # 依次打开PowerShell窗口
+
         for i, server in enumerate(self.servers):
             self.log_message(f"启动 {server['description']} ({i+1}/{len(self.servers)})...")
             
@@ -181,7 +166,7 @@ class WuWaDebugRun:
             if process:
                 processes.append(process)
                 
-                # 等待一段时间再启动下一个服务端
+
                 if i < len(self.servers) - 1:
                     self.log_message(f"等待1秒后启动下一个服务端...")
                     time.sleep(1)
@@ -223,16 +208,15 @@ class WuWaDebugRun:
             return False
             
 def main():
-    """主函数"""
     try:
-        # 获取项目根目录
+
         current_dir = Path(__file__).parent
         project_root = current_dir.parent
         
-        # 创建调试运行实例
+
         debug_runner = WuWaDebugRun(project_root)
         
-        # 运行调试模式
+
         success = debug_runner.run_debug_mode()
         
         if success:

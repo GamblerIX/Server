@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-鸣潮服务端环境检查模块
-
-功能：
-- 检查系统要求（操作系统、Python版本）
-- 检查发行版可执行文件
-- 检查数据库连接
-- 提供环境检查结果和建议
-"""
 
 import os
 import sys
@@ -20,7 +10,6 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 class WuWaEnvironmentChecker:
-    """鸣潮服务端环境检查器"""
     
     def __init__(self, project_root):
         self.project_root = Path(project_root)
@@ -29,7 +18,6 @@ class WuWaEnvironmentChecker:
         self.check_results = []
         
     def add_result(self, check_name: str, passed: bool, message: str, suggestion: str = ""):
-        """添加检查结果"""
         self.check_results.append({
             'name': check_name,
             'passed': passed,
@@ -38,7 +26,6 @@ class WuWaEnvironmentChecker:
         })
         
     def check_operating_system(self) -> bool:
-        """检查操作系统 - 仅支持Windows 10+和Windows Server 2019+"""
         try:
             os_name = platform.system()
             
@@ -50,13 +37,13 @@ class WuWaEnvironmentChecker:
                 )
                 return False
             
-            # 获取详细的Windows版本信息
+
             platform_info = platform.platform()
             os_version = platform.release()
             
-            # 检查Windows版本
+
             if "Windows-10" in platform_info or os_version == "10":
-                # Windows 10
+
                 self.add_result(
                     "操作系统", True, 
                     f"[成功] Windows 10 (支持)",
@@ -64,7 +51,7 @@ class WuWaEnvironmentChecker:
                 )
                 return True
             elif "Windows-11" in platform_info or os_version == "11":
-                # Windows 11
+
                 self.add_result(
                     "操作系统", True, 
                     f"[成功] Windows 11 (支持)",
@@ -72,7 +59,7 @@ class WuWaEnvironmentChecker:
                 )
                 return True
             elif "Server" in platform_info:
-                # Windows Server版本检查
+
                 if "2019" in platform_info or "2022" in platform_info:
                     self.add_result(
                         "操作系统", True, 
@@ -88,7 +75,7 @@ class WuWaEnvironmentChecker:
                     )
                     return False
             else:
-                # 其他Windows版本（如Windows 7, 8, 8.1等）
+
                 self.add_result(
                     "操作系统", False, 
                     f"[错误] 不支持的Windows版本: {os_version}",
@@ -105,7 +92,6 @@ class WuWaEnvironmentChecker:
             return False
             
     def check_python_version(self) -> bool:
-        """检查Python版本"""
         try:
             python_version = sys.version_info
             version_str = f"{python_version.major}.{python_version.minor}.{python_version.micro}"
@@ -135,7 +121,6 @@ class WuWaEnvironmentChecker:
 
             
     def check_executables_for_runtime(self) -> bool:
-        """检查可执行文件（用于运行时）"""
         try:
             if not self.release_dir.exists():
                 self.add_result(
@@ -145,7 +130,7 @@ class WuWaEnvironmentChecker:
                 )
                 return False
                 
-            # 检查关键可执行文件
+
             required_executables = [
                 "wicked-waifus-config-server.exe",
                 "wicked-waifus-login-server.exe",
@@ -161,7 +146,7 @@ class WuWaEnvironmentChecker:
                     missing_files.append(exe)
                     
             if missing_files:
-                # 检查是否有源码和Rust环境作为备选
+
                 has_source = self.wicked_waifus_path.exists() and (self.wicked_waifus_path / "Cargo.toml").exists()
                 has_rust = self._check_rust_available()
                 
@@ -190,16 +175,15 @@ class WuWaEnvironmentChecker:
 
             
     def check_postgresql_connection(self) -> bool:
-        """检查PostgreSQL连接"""
         try:
-            # 默认连接参数
+
             host = "127.0.0.1"
             port = 5432
             database = "users"
             username = "users"
             password = "password"
             
-            # 首先检查端口是否开放
+
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                     sock.settimeout(5)
@@ -219,7 +203,7 @@ class WuWaEnvironmentChecker:
                 )
                 return False
             
-            # 首先检查是否有psycopg2模块
+
             psycopg2_available = False
             try:
                 import psycopg2
@@ -227,7 +211,7 @@ class WuWaEnvironmentChecker:
             except ImportError:
                 pass
             
-            # 检查是否有psql命令
+
             psql_available = False
             try:
                 result = subprocess.run(
@@ -240,7 +224,7 @@ class WuWaEnvironmentChecker:
             except (FileNotFoundError, subprocess.TimeoutExpired):
                 pass
             
-            # 如果两者都不可用，提供安装建议
+
             if not psycopg2_available and not psql_available:
                 self.add_result(
                     "PostgreSQL连接", False,
@@ -252,18 +236,18 @@ class WuWaEnvironmentChecker:
                 )
                 return False
             
-            # 尝试使用psycopg2进行数据库连接测试
+
             if psycopg2_available:
                 try:
                     import psycopg2
                     
-                    # 构建连接字符串
+
                     conn_string = f"host={host} port={port} dbname={database} user={username} password={password}"
                     
-                    # 尝试连接
+
                     with psycopg2.connect(conn_string) as conn:
                         with conn.cursor() as cursor:
-                            # 执行简单查询测试连接
+    
                             cursor.execute("SELECT version();")
                             version = cursor.fetchone()[0]
                             
@@ -292,14 +276,14 @@ class WuWaEnvironmentChecker:
                     )
                     return False
             
-            # 如果psycopg2不可用但psql可用，使用psql命令测试
+
             elif psql_available:
                 try:
-                    # 设置环境变量避免密码提示
+
                     env = os.environ.copy()
                     env['PGPASSWORD'] = password
                     
-                    # 执行psql命令测试连接
+
                     result = subprocess.run(
                         ['psql', '-h', host, '-p', str(port), '-U', username, '-d', database, '-c', 'SELECT version();'],
                         capture_output=True,
@@ -344,7 +328,6 @@ class WuWaEnvironmentChecker:
 
             
     def check_release_directory(self) -> bool:
-        """检查release目录和可执行文件"""
         try:
             if not self.release_dir.exists():
                 self.add_result(
@@ -354,7 +337,7 @@ class WuWaEnvironmentChecker:
                 )
                 return False
                 
-            # 检查关键可执行文件
+
             required_executables = [
                 "wicked-waifus-config-server.exe",
                 "wicked-waifus-login-server.exe",
@@ -393,7 +376,6 @@ class WuWaEnvironmentChecker:
             return False
             
     def check_dependencies(self) -> bool:
-        """检查Python依赖"""
         try:
             required_modules = ['psutil', 'toml']
             missing_modules = []
@@ -428,20 +410,12 @@ class WuWaEnvironmentChecker:
             return False
             
     def run_all_checks(self, silent: bool = False) -> Tuple[bool, List[Dict]]:
-        """运行所有环境检查
-        
-        Args:
-            silent: 是否静默模式（不输出到控制台）
-            
-        Returns:
-            Tuple[bool, List[Dict]]: (是否全部通过, 检查结果列表)
-        """
         self.check_results.clear()
         
         if not silent:
             print("\n=== 环境检查 ===")
             
-        # 执行所有检查
+
         checks = [
             self.check_operating_system(),
             self.check_python_version(),
@@ -450,14 +424,14 @@ class WuWaEnvironmentChecker:
             self.check_postgresql_connection()
         ]
         
-        # 输出结果
+
         if not silent:
             for result in self.check_results:
                 print(result['message'])
                 if result['suggestion']:
                     print(f"    建议: {result['suggestion']}")
                     
-        # 检查是否全部通过
+
         all_passed = all(checks)
         
         if not silent:
@@ -470,22 +444,17 @@ class WuWaEnvironmentChecker:
         return all_passed, self.check_results
         
     def check_for_startup(self) -> bool:
-        """启动前的环境检查（运行时检查）
-        
-        Returns:
-            bool: 是否可以启动服务端
-        """
         print("正在检查运行环境...")
         
-        # 运行时关键检查
+
         critical_checks = [
             self.check_python_version(),
             self.check_dependencies(),
-            self.check_executables_for_runtime(),  # 运行时检查可执行文件
-            self.check_postgresql_connection()     # 运行时必须检查数据库连接
+            self.check_executables_for_runtime(),
+            self.check_postgresql_connection()
         ]
         
-        # 检查关键项目是否通过
+
         if not all(critical_checks):
             print("[错误] 运行环境检查失败，请解决问题后重试")
             return False
@@ -496,21 +465,20 @@ class WuWaEnvironmentChecker:
 
 
 def main():
-    """主函数 - 用于独立运行环境检查"""
     import sys
     from pathlib import Path
     
-    # 获取项目根目录
+
     script_dir = Path(__file__).parent
     project_root = script_dir.parent
     
-    # 创建检查器
+
     checker = WuWaEnvironmentChecker(project_root)
     
-    # 运行检查
+
     all_passed, results = checker.run_all_checks()
     
-    # 返回适当的退出码
+
     sys.exit(0 if all_passed else 1)
 
 if __name__ == "__main__":

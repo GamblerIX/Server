@@ -1,14 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-鸣潮服务端完全卸载脚本
-
-功能：
-- 停止所有服务端进程（调用stop.py）
-- 备份重要数据
-- 删除整个Server项目文件夹
-- 处理自身删除问题
-"""
 
 import os
 import sys
@@ -20,22 +11,20 @@ from pathlib import Path
 from datetime import datetime
 
 class WuWaUninstaller:
-    """鸣潮服务端卸载类"""
     
     def __init__(self, project_root):
         self.project_root = Path(project_root)
         self.log_file = self.project_root / "uninstall.log"
         self.stop_script = self.project_root / "py" / "stop.py"
         
-        # 确保日志目录存在
+        
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
         
     def log_message(self, message, log_type="INFO"):
-        """记录日志消息"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] [{log_type}] {message}"
         
-        # 输出到控制台
+        
         if log_type == "ERROR":
             print(f"[错误] {message}")
         elif log_type == "WARNING":
@@ -45,7 +34,7 @@ class WuWaUninstaller:
         else:
             print(f"[信息] {message}")
         
-        # 写入日志文件
+        
         try:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(log_entry + "\n")
@@ -53,7 +42,6 @@ class WuWaUninstaller:
             print(f"写入日志失败: {e}")
     
     def stop_all_servers(self):
-        """调用stop.py停止所有服务端"""
         self.log_message("=== 开始停止所有服务端 ===")
         
         if not self.stop_script.exists():
@@ -61,7 +49,7 @@ class WuWaUninstaller:
             return False
         
         try:
-            # 调用stop.py脚本
+            
             result = subprocess.run(
                 [sys.executable, str(self.stop_script)],
                 cwd=str(self.project_root),
@@ -85,10 +73,9 @@ class WuWaUninstaller:
             return False
     
     def backup_important_data(self):
-        """备份重要数据"""
         self.log_message("=== 开始备份重要数据 ===")
         
-        # 创建备份目录
+        
         backup_dir = Path.home() / "Desktop" / f"Server_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         backup_dir.mkdir(parents=True, exist_ok=True)
         
@@ -122,14 +109,13 @@ class WuWaUninstaller:
         return backup_dir if backed_up else None
     
     def create_deletion_script(self):
-        """创建临时批处理文件来删除整个Server文件夹"""
         self.log_message("=== 创建删除脚本 ===")
         
-        # 创建临时批处理文件
+        
         temp_dir = Path(tempfile.gettempdir())
         batch_file = temp_dir / f"delete_Server_{int(time.time())}.bat"
         
-        # 批处理脚本内容
+        
         batch_content = f'''@echo off
 echo 等待uninstall.py退出...
 timeout /t 3 /nobreak >nul
@@ -157,30 +143,29 @@ del "%~f0"
             return None
     
     def complete_uninstall(self):
-        """执行完全卸载"""
         self.log_message("=== 开始鸣潮服务端完全卸载 ===")
         
-        # 步骤1: 停止所有服务端
+        
         if not self.stop_all_servers():
             self.log_message("停止服务端失败，但继续卸载过程", "WARNING")
         
-        # 步骤2: 备份重要数据
+        
         backup_dir = self.backup_important_data()
         if backup_dir:
             self.log_message(f"重要数据已备份到桌面: {backup_dir.name}", "SUCCESS")
         
-        # 步骤3: 创建删除脚本
+        
         batch_file = self.create_deletion_script()
         if not batch_file:
             self.log_message("创建删除脚本失败，无法完成完全卸载", "ERROR")
             return False
         
-        # 步骤4: 执行删除脚本并退出
+        
         self.log_message("=== 准备删除Server文件夹 ===")
         self.log_message("即将启动删除脚本并退出uninstall.py")
         
         try:
-            # 启动批处理文件
+            
             subprocess.Popen([str(batch_file)], shell=True)
             self.log_message("[成功] 删除脚本已启动，uninstall.py即将退出", "SUCCESS")
             return True
@@ -189,7 +174,6 @@ del "%~f0"
             return False
         
 def main():
-    """主函数"""
     project_root = Path(__file__).parent.parent
     uninstaller = WuWaUninstaller(project_root)
     
@@ -200,17 +184,17 @@ def main():
     print("=" * 40)
     
     try:
-        # 确认卸载
+        
         confirm = input("\n确定要完全卸载鸣潮服务端吗？(输入 'YES' 确认): ").strip()
         if confirm != 'YES':
             print("取消卸载操作")
             return
         
-        # 执行完全卸载
+        
         if uninstaller.complete_uninstall():
             print("\n[成功] 卸载脚本已启动，程序即将退出")
             print("删除过程将在后台继续进行...")
-            time.sleep(2)  # 给用户时间看到消息
+            time.sleep(2)
         else:
             print("\n[错误] 卸载过程中出现错误")
             input("按回车键退出...")

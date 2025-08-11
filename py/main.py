@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-鸣潮服务端一键部署工具 - 主入口脚本
-
-功能：
-- 1 - 运行服务端
-- 2 - 停止服务端
-- 3 - 完全卸载项目
-- 4 - 监控服务端状态
-- 5 - 调试运行
-- 6 - 环境检查
-"""
 
 import os
 import sys
@@ -20,7 +8,7 @@ import msvcrt
 import signal
 from pathlib import Path
 
-# 添加当前目录到Python路径
+
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
@@ -35,7 +23,6 @@ except ImportError as e:
     sys.exit(1)
 
 class WuWaManager:
-    """鸣潮服务端管理器主类"""
     
     def __init__(self):
         self.project_root = Path(__file__).parent.parent
@@ -43,59 +30,52 @@ class WuWaManager:
         self.logs_dir = self.project_root / "logs"
         self.release_dir = self.project_root / "release"
         
-        # 初始化完成
         
-        # 确保日志目录存在
         self.logs_dir.mkdir(exist_ok=True)
         
-        # 初始化各个模块
+        
         self.runner = WuWaRun(self.project_root)
         self.status_checker = WuWaStatus(self.project_root)
         self.uninstaller = WuWaUninstaller(self.project_root)
         self.stopper = WuWaStop(self.project_root)
         self.env_checker = WuWaEnvironmentChecker(self.project_root)
         
-        # 初始化主程序日志
+        
         self.setup_main_logging()
         
-        # 设置信号处理器
+        
         self._setup_signal_handlers()
         
     def _setup_signal_handlers(self):
-        """设置信号处理器"""
         def signal_handler(signum, frame):
             print("\n提示: 服务端将继续在后台运行，如需停止请使用菜单选项2")
             print("退出主菜单...")
             print("\n感谢使用鸣潮服务端一键部署工具！")
-            # 在Windows上，直接退出程序是最可靠的方法
+            
             sys.exit(0)
             
-        # 注册信号处理器
-        signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+        signal.signal(signal.SIGINT, signal_handler)
         if hasattr(signal, 'SIGTERM'):
-            signal.signal(signal.SIGTERM, signal_handler)  # 终止信号
+            signal.signal(signal.SIGTERM, signal_handler)
             
     def setup_main_logging(self):
-        """设置主程序日志"""
         self.main_log_file = self.logs_dir / "main.log"
         
     def log_message(self, message, log_type="INFO"):
-        """记录日志消息"""
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_entry = f"[{timestamp}] [{log_type}] {message}"
         
-        # 输出到控制台
+        
         print(log_entry)
         
-        # 写入日志文件
+        
         with open(self.main_log_file, "a", encoding="utf-8") as f:
             f.write(log_entry + "\n")
         
 
         
     def show_banner(self):
-        """显示程序横幅"""
         banner = """
 ================================================================================
                             鸣潮服务端一键部署工具
@@ -106,7 +86,6 @@ class WuWaManager:
         print(banner)
         
     def show_menu(self):
-        """显示主菜单"""
         menu = """
 === 主菜单 ===
 1. 运行服务端
@@ -121,7 +100,6 @@ class WuWaManager:
         return input(menu).strip()
         
     def show_server_info(self):
-        """显示服务端信息"""
         info = """
 === 服务端口信息 ===
 - 10001 - 配置服务端 (config-server)
@@ -141,7 +119,6 @@ class WuWaManager:
 
             
     def handle_run(self):
-        """处理运行服务端"""
         print("\n=== 运行服务端 ===")
         
         try:
@@ -153,19 +130,18 @@ class WuWaManager:
                 print("\n=== 启动完成，自动返回主菜单 ===")
                 print("提示: 服务端继续在后台运行，如需停止请选择菜单选项2")
                 print("[完成] 已自动返回主菜单")
-                return  # 直接返回主菜单
+                return
             else:
                 print("[错误] 服务端启动失败")
         except KeyboardInterrupt:
             print("\n\n=== 退出运行菜单 ===")
             print("提示: 服务端继续在后台运行，如需停止请选择菜单选项2")
             print("[完成] 已退出运行菜单")
-            return  # 直接返回，不需要按回车
+            return
         except Exception as e:
             print(f"[错误] 运行过程中发生错误: {e}")
             
     def handle_uninstall(self):
-        """处理卸载项目"""
         print("\n=== 完全卸载项目 ===")
         confirm = input("[警告] 这将删除所有项目文件和日志，确定要继续吗？(y/N): ").strip().lower()
         if confirm in ['y', 'yes']:
@@ -181,7 +157,6 @@ class WuWaManager:
             print("取消卸载操作")
             
     def handle_status(self):
-        """处理监控服务端状态"""
         print("\n=== 监控服务端状态 ===")
         try:
             self.status_checker.show_status()
@@ -193,7 +168,6 @@ class WuWaManager:
 
             
     def handle_debug_run(self):
-        """处理调试运行服务端"""
         print("\n=== 调试运行服务端 ===")
         print("这将在5个独立的PowerShell窗口中运行各个服务端")
         print("每个窗口将显示对应服务端的实时输出")
@@ -201,7 +175,7 @@ class WuWaManager:
         confirm = input("\n是否继续？(Y/n): ").strip().lower()
         if confirm in ['', 'y', 'yes']:
             try:
-                # 导入并运行debug_run脚本
+                
                 import subprocess
                 import sys
                 
@@ -220,24 +194,22 @@ class WuWaManager:
             print("\n取消调试运行操作")
             
     def handle_env_check(self):
-        """处理环境检查"""
         print("\n=== 环境检查 ===")
         self.env_checker.run_all_checks()
             
     def wait_for_esc_key(self):
-        """等待ESC键按下"""
-        if os.name == 'nt':  # Windows
+        if os.name == 'nt':
             import msvcrt
             while True:
                 if msvcrt.kbhit():
                     key = msvcrt.getch()
-                    if key == b'\x1b':  # ESC键
-                        # 清空输入缓冲区
+                    if key == b'\x1b':
+                        
                         while msvcrt.kbhit():
                             msvcrt.getch()
                         return
                 time.sleep(0.05)
-        else:  # Unix-like系统
+        else:
             import termios
             import tty
             fd = sys.stdin.fileno()
@@ -246,24 +218,23 @@ class WuWaManager:
                 tty.setraw(sys.stdin.fileno())
                 while True:
                     key = sys.stdin.read(1)
-                    if ord(key) == 27:  # ESC键
+                    if ord(key) == 27:
                         return
             finally:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
             
     def handle_stop(self):
-        """处理停止服务端"""
         print("\n=== 停止服务端 ===")
         try:
-            # 直接询问是否停止（优化流程）
+            
             confirm = input("是否停止所有运行中的服务端？(Y/n): ").strip().lower()
             if confirm in ['', 'y', 'yes']:
-                # 先停止服务端
+                
                 success = self.stopper.stop_all_servers()
                 
-                # 停止后再检查状态
+                
                 print("\n正在检查停止结果...")
-                time.sleep(1)  # 短暂等待确保进程完全停止
+                time.sleep(1)
                 running_servers = self.stopper.show_running_servers()
                 
                 if not running_servers:
@@ -280,24 +251,23 @@ class WuWaManager:
 
             
     def run(self):
-        """运行主程序"""
         try:
-            # 记录程序启动
+            
             self.log_message("=== 鸣潮服务端一键部署工具启动 ===")
             
-            # 清屏
+            
             os.system('cls' if os.name == 'nt' else 'clear')
             
-            # 显示横幅
+            
             self.show_banner()
             
-            # 主循环
+            
             while True:
                 try:
                     choice = self.show_menu()
                     
                     if choice == '7':
-                        print("\n感谢使用鸣潮服务端一键部署工具！")
+                        print("\n感谢使用鸣潮服务端一键运行工具！")
                         break
                     elif choice == '1':
                         self.handle_run()
@@ -314,22 +284,21 @@ class WuWaManager:
                     else:
                         print("[错误] 无效选择，请输入 1-7 之间的数字")
                         
-                    # 只有运行服务端功能不需要按回车，其他功能需要
+                    
                     if choice != '7' and choice != '1':
                         input("\n按回车键继续...")
                         
                 except KeyboardInterrupt:
-                    # Ctrl+C信号会被信号处理器直接处理并退出程序
-                    # 如果到达这里，说明是其他地方的KeyboardInterrupt
+                    
                     print("\n")
                     continue
                 except Exception as e:
-                    # 过滤掉空异常消息
+                    
                     if str(e).strip():
                         print(f"\n[错误] 发生未知错误: {e}")
                         input("按回车键继续...")
                     else:
-                        # 空异常消息，可能是Ctrl+C相关，直接继续
+                        
                         continue
                     
         except Exception as e:
@@ -337,7 +306,6 @@ class WuWaManager:
             sys.exit(1)
 
 def main():
-    """主函数"""
     manager = WuWaManager()
     manager.run()
 
