@@ -146,8 +146,8 @@ class WuWaLogs:
             
     def _read_log_lines(self, log_path, lines):
         """读取日志文件的最后几行"""
-        print(f"\n📄 日志文件: {log_path.name}")
-        print(f"📅 最后 {lines} 行内容:")
+        print(f"\n[文件] 日志文件: {log_path.name}")
+        print(f"[内容] 最后 {lines} 行内容:")
         print("-" * 80)
         
         try:
@@ -179,7 +179,7 @@ class WuWaLogs:
         
     def _follow_log_file(self, log_path):
         """实时跟踪日志文件"""
-        print(f"\n📄 实时监控日志文件: {log_path.name}")
+        print(f"\n[监控] 实时监控日志文件: {log_path.name}")
         print("按 Ctrl+C 停止监控")
         print("-" * 80)
         
@@ -220,8 +220,8 @@ class WuWaLogs:
         elif isinstance(log_keys, str):
             log_keys = [log_keys]
             
-        print(f"\n🔍 搜索模式: '{pattern}'")
-        print(f"📁 搜索范围: {', '.join(log_keys)}")
+        print(f"\n[搜索] 搜索模式: '{pattern}'")
+        print(f"[范围] 搜索范围: {', '.join(log_keys)}")
         print("-" * 80)
         
         total_matches = 0
@@ -243,13 +243,13 @@ class WuWaLogs:
                 
             matches = self._search_in_file(log_path, regex)
             if matches:
-                print(f"\n📄 {log_path.name} ({len(matches)} 个匹配):")
+                print(f"\n[文件] {log_path.name} ({len(matches)} 个匹配):")
                 for line_num, line in matches:
                     colored_line = self._colorize_log_line(line)
                     print(f"  {line_num:4}: {colored_line}")
                 total_matches += len(matches)
                 
-        print(f"\n🎯 总共找到 {total_matches} 个匹配项")
+        print(f"\n[结果] 总共找到 {total_matches} 个匹配项")
         
     def _search_in_file(self, file_path, regex, max_matches=100):
         """在文件中搜索匹配项"""
@@ -284,7 +284,7 @@ class WuWaLogs:
         elif isinstance(log_keys, str):
             log_keys = [log_keys]
             
-        print(f"\n📊 日志分析 (最近 {hours} 小时)")
+        print(f"\n[分析] 日志分析 (最近 {hours} 小时)")
         print("=" * 80)
         
         cutoff_time = datetime.now() - timedelta(hours=hours)
@@ -307,7 +307,7 @@ class WuWaLogs:
             if not log_path.exists():
                 continue
                 
-            print(f"\n📄 分析 {log_path.name}:")
+            print(f"\n[文件] 分析 {log_path.name}:")
             file_stats = self._analyze_log_file(log_path, cutoff_time)
             
             if file_stats:
@@ -329,7 +329,7 @@ class WuWaLogs:
                 print("  无数据或文件为空")
                 
         # 显示总体统计
-        print(f"\n📈 总体统计:")
+        print(f"\n[统计] 总体统计:")
         print("-" * 40)
         print(f"总行数: {total_stats['total_lines']}")
         print(f"错误: {total_stats['error_count']}")
@@ -339,7 +339,7 @@ class WuWaLogs:
         
         # 显示每小时分布
         if total_stats['hourly_distribution']:
-            print(f"\n⏰ 每小时日志分布:")
+            print(f"\n[时间] 每小时日志分布:")
             print("-" * 40)
             sorted_hours = sorted(total_stats['hourly_distribution'].items())
             for hour, count in sorted_hours[-12:]:  # 显示最近12小时
@@ -348,7 +348,7 @@ class WuWaLogs:
                 
         # 显示常见错误
         if total_stats['error_messages']:
-            print(f"\n🚨 常见错误 (前5个):")
+            print(f"\n[错误] 常见错误 (前5个):")
             print("-" * 40)
             for error, count in total_stats['error_messages'].most_common(5):
                 print(f"  {count:3}x {error[:60]}..." if len(error) > 60 else f"  {count:3}x {error}")
@@ -451,7 +451,7 @@ class WuWaLogs:
         
     def clean_logs(self, days_to_keep=7, compress_old=True):
         """清理旧日志文件"""
-        print(f"\n🧹 清理日志文件 (保留最近 {days_to_keep} 天)")
+        print(f"\n[清理] 清理日志文件 (保留最近 {days_to_keep} 天)")
         print("=" * 60)
         
         cutoff_time = datetime.now() - timedelta(days=days_to_keep)
@@ -491,14 +491,14 @@ class WuWaLogs:
                 
         # 显示结果
         if cleaned_files:
-            print(f"✅ 已清理 {len(cleaned_files)} 个文件:")
+            print(f"[成功] 已清理 {len(cleaned_files)} 个文件:")
             for filename in cleaned_files:
                 print(f"  - {filename}")
         else:
-            print("ℹ️  没有需要清理的文件")
+            print("[信息] 没有需要清理的文件")
             
         if compressed_files:
-            print(f"\n📦 已压缩 {len(compressed_files)} 个文件:")
+            print(f"\n[压缩] 已压缩 {len(compressed_files)} 个文件:")
             for filepath in compressed_files:
                 print(f"  - {filepath.name}")
                 
@@ -528,7 +528,7 @@ class WuWaLogs:
         elif isinstance(log_keys, str):
             log_keys = [log_keys]
             
-        print(f"\n📤 导出日志到: {output_path}")
+        print(f"\n[导出] 导出日志到: {output_path}")
         print("=" * 60)
         
         exported_files = []
@@ -555,12 +555,12 @@ class WuWaLogs:
                     shutil.copy2(log_path, export_path)
                     
                 exported_files.append(export_filename)
-                print(f"✅ {log_key}: {export_filename}")
+                print(f"[成功] {log_key}: {export_filename}")
                 
             except Exception as e:
-                print(f"❌ {log_key}: 导出失败 - {e}")
+                print(f"[失败] {log_key}: 导出失败 - {e}")
                 
-        print(f"\n📊 总计导出 {len(exported_files)} 个文件")
+        print(f"\n[统计] 总计导出 {len(exported_files)} 个文件")
         print("\n" + "=" * 60)
         
     def _export_filtered_log(self, source_path, target_path, date_range):

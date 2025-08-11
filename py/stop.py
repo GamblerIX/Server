@@ -107,6 +107,44 @@ class WuWaStop:
             self.log_message(f"无法检查端口{port}的占用情况", "WARNING")
         return processes
         
+    def find_processes_by_name_fast(self, process_name):
+        """快速根据进程名查找进程（3秒超时）"""
+        processes = []
+        start_time = time.time()
+        try:
+            for proc in psutil.process_iter(['pid', 'name']):
+                # 检查超时
+                if time.time() - start_time > 1.5:  # 1.5秒超时
+                    break
+                try:
+                    # 只检查进程名，不检查命令行参数（更快）
+                    if process_name.lower() in proc.info['name'].lower():
+                        processes.append(proc)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        except Exception as e:
+            self.log_message(f"快速查找进程时发生错误: {e}", "ERROR")
+        return processes
+        
+    def find_processes_by_port_fast(self, port):
+        """快速根据端口查找进程（1.5秒超时）"""
+        processes = []
+        start_time = time.time()
+        try:
+            for conn in psutil.net_connections():
+                # 检查超时
+                if time.time() - start_time > 1.5:  # 1.5秒超时
+                    break
+                if conn.laddr.port == port and conn.status == psutil.CONN_LISTEN:
+                    try:
+                        process = psutil.Process(conn.pid)
+                        processes.append(process)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+        except (psutil.AccessDenied, AttributeError):
+            pass  # 静默处理，避免过多警告
+        return processes
+        
     def stop_process(self, process, server_name):
         """停止单个进程"""
         try:
@@ -117,15 +155,15 @@ class WuWaStop:
             
             # 等待进程结束
             try:
-                process.wait(timeout=10)
-                self.log_message(f"✅ {server_name} 已优雅停止")
+                process.wait(timeout=3)  # 减少等待时间到3秒
+                self.log_message(f"[成功] {server_name} 已优雅停止")
                 return True
             except psutil.TimeoutExpired:
                 # 强制杀死进程
                 self.log_message(f"强制停止 {server_name}...", "WARNING")
                 process.kill()
                 process.wait()
-                self.log_message(f"✅ {server_name} 已强制停止")
+                self.log_message(f"[成功] {server_name} 已强制停止")
                 return True
                 
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
@@ -156,9 +194,9 @@ class WuWaStop:
                 stopped_count += 1
                 
         if stopped_count > 0:
-            self.log_message(f"✅ 停止了 {stopped_count} 个 {server_name} 进程")
+            self.log_message(f"[成功] 停止了 {stopped_count} 个 {server_name} 进程")
         else:
-            self.log_message(f"ℹ️  未找到运行中的 {server_name} 进程")
+            self.log_message(f"[信息] 未找到运行中的 {server_name} 进程")
             
         return stopped_count > 0
         
@@ -170,9 +208,9 @@ class WuWaStop:
         stop_flag_file = self.project_root / "stop_flag.tmp"
         try:
             stop_flag_file.touch()
-            self.log_message("✅ 已创建停止标志文件，禁用自动重启")
+            self.log_message("[成功] 已创建停止标志文件，禁用自动重启")
         except Exception as e:
-            self.log_message(f"⚠️  创建停止标志文件失败: {e}", "WARNING")
+            self.log_message(f"[警告] 创建停止标志文件失败: {e}", "WARNING")
         
         total_stopped = 0
         
@@ -181,7 +219,7 @@ class WuWaStop:
             running_servers = self.show_running_servers()
             
         if not running_servers:
-            self.log_message("ℹ️  没有找到运行中的服务端进程")
+            self.log_message("[信息] 没有找到运行中的服务端进程")
             self.log_message("=== 服务端停止完成 ===")
             return False
             
@@ -194,7 +232,7 @@ class WuWaStop:
             if server_name in running_server_names:
                 if self.stop_server_by_name(server_key):
                     total_stopped += 1
-                time.sleep(2)  # 等待进程完全停止
+                time.sleep(1)  # 等待进程完全停止
             
         # 额外检查：停止所有可能遗漏的相关进程
         self.log_message("检查是否有遗漏的进程...")
@@ -206,21 +244,21 @@ class WuWaStop:
                 additional_stopped += 1
                     
         if additional_stopped > 0:
-            self.log_message(f"✅ 额外停止了 {additional_stopped} 个遗漏的进程")
+            self.log_message(f"[成功] 额外停止了 {additional_stopped} 个遗漏的进程")
             total_stopped += additional_stopped
             
         if total_stopped > 0:
-            self.log_message(f"✅ 总共停止了 {total_stopped} 个服务端进程")
+            self.log_message(f"[成功] 总共停止了 {total_stopped} 个服务端进程")
         else:
-            self.log_message("ℹ️  没有找到运行中的服务端进程")
+            self.log_message("[信息] 没有找到运行中的服务端进程")
             
         # 清理停止标志文件
         try:
             if stop_flag_file.exists():
                 stop_flag_file.unlink()
-                self.log_message("✅ 已清理停止标志文件")
+                self.log_message("[成功] 已清理停止标志文件")
         except Exception as e:
-            self.log_message(f"⚠️  清理停止标志文件失败: {e}", "WARNING")
+            self.log_message(f"[警告] 清理停止标志文件失败: {e}", "WARNING")
         
         self.log_message("=== 服务端停止完成 ===")
         return total_stopped > 0
@@ -230,14 +268,20 @@ class WuWaStop:
         self.log_message("=== 检查运行中的服务端 ===")
         
         running_servers = []
+        start_time = time.time()
         
         for server_key, server in self.servers.items():
+            # 检查是否超时（3秒限制）
+            if time.time() - start_time > 3:
+                self.log_message("[警告] 检查超时，使用快速模式", "WARNING")
+                break
+                
             server_name = server["name"]
             port = server["port"]
             
-            # 检查进程
-            processes = self.find_processes_by_name(server_name)
-            port_processes = self.find_processes_by_port(port)
+            # 检查进程（使用快速模式）
+            processes = self.find_processes_by_name_fast(server_name)
+            port_processes = self.find_processes_by_port_fast(port)
             
             if processes or port_processes:
                 running_servers.append({
@@ -250,9 +294,9 @@ class WuWaStop:
         if running_servers:
             self.log_message(f"发现 {len(running_servers)} 个运行中的服务端:")
             for server in running_servers:
-                self.log_message(f"  • {server['name']} (端口{server['port']}) - 进程数: {server['processes'] + server['port_processes']}")
+                self.log_message(f"  - {server['name']} (端口{server['port']}) - 进程数: {server['processes'] + server['port_processes']}")
         else:
-            self.log_message("✅ 没有发现运行中的服务端")
+            self.log_message("[成功] 没有发现运行中的服务端")
             
         return running_servers
 

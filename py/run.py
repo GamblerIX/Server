@@ -88,25 +88,9 @@ class WuWaRun:
         self.auto_restart_enabled = True  # 自动重启开关
         self.stop_flag_file = self.project_root / "stop_flag.tmp"  # 停止标志文件
         
-        # 注册信号处理器
-        self._setup_signal_handlers()
+        # 信号处理器由main.py统一管理，这里不再注册
         
-    def _setup_signal_handlers(self):
-        """设置信号处理器"""
-        def signal_handler(signum, frame):
-            self.log_message(f"接收到信号 {signum}，正在停止所有服务端...")
-            self.shutdown_event.set()
-            self.stop_all_servers()
-            sys.exit(0)
-            
-        # 注册信号处理器
-        if os.name == 'nt':  # Windows
-            signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
-            signal.signal(signal.SIGTERM, signal_handler)  # 终止信号
-        else:  # Unix-like系统
-            signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
-            signal.signal(signal.SIGTERM, signal_handler)  # 终止信号
-            signal.signal(signal.SIGHUP, signal_handler)  # 挂起信号
+    # _setup_signal_handlers方法已移除，信号处理由main.py统一管理
             
     def log_message(self, message, log_type="INFO"):
         """记录日志消息"""
@@ -190,12 +174,15 @@ class WuWaRun:
             
             # 启动进程
             if os.name == 'nt':  # Windows
-                # 在Windows上不使用CREATE_NEW_PROCESS_GROUP，这样Ctrl+C信号可以传播到子进程
+                # 在Windows上使用CREATE_NEW_PROCESS_GROUP和DETACHED_PROCESS，确保进程完全独立
                 process = subprocess.Popen(
                     cmd,
                     cwd=cwd,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL
+                    stderr=subprocess.DEVNULL,
+                    stdin=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                    close_fds=True
                 )
             else:  # Unix-like系统
                 process = subprocess.Popen(
@@ -203,7 +190,9 @@ class WuWaRun:
                     cwd=cwd,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    preexec_fn=os.setsid
+                    stdin=subprocess.DEVNULL,
+                    preexec_fn=os.setsid,
+                    close_fds=True
                 )
             
             # 等待一段时间检查进程是否正常启动
@@ -213,7 +202,7 @@ class WuWaRun:
                 # 进程仍在运行
                 server["process"] = process
                 server["start_time"] = time.time()
-                self.log_message(f"✅ {server_name} 启动成功 (PID: {process.pid})")
+                self.log_message(f"[成功] {server_name} 启动成功 (PID: {process.pid})")
                 
                 # 日志监控功能已移除
                 
@@ -221,12 +210,12 @@ class WuWaRun:
             else:
                 # 进程已退出
                 return_code = process.returncode
-                error_msg = f"❌ {server_name} 启动失败 (退出码: {return_code})"
+                error_msg = f"[错误] {server_name} 启动失败 (退出码: {return_code})"
                 self.log_message(error_msg, "ERROR")
                 return False
                 
         except Exception as e:
-            self.log_message(f"❌ {server_name} 启动异常: {e}", "ERROR")
+            self.log_message(f"[错误] {server_name} 启动异常: {e}", "ERROR")
             return False
             
     # _monitor_server_output方法已移除
@@ -254,13 +243,13 @@ class WuWaRun:
             # 等待进程结束
             try:
                 process.wait(timeout=10)
-                self.log_message(f"✅ {server_name} 已优雅停止")
+                self.log_message(f"[成功] {server_name} 已优雅停止")
             except subprocess.TimeoutExpired:
                 # 强制杀死进程
                 self.log_message(f"强制停止 {server_name}...", "WARNING")
                 process.kill()
                 process.wait()
-                self.log_message(f"✅ {server_name} 已强制停止")
+                self.log_message(f"[成功] {server_name} 已强制停止")
                 
             # 在Windows上，还需要确保杀死可能的子进程
             if os.name == 'nt':
@@ -292,9 +281,9 @@ class WuWaRun:
         self.log_message("正在进行环境检查...")
         env_checker = WuWaEnvironmentChecker(self.project_root)
         if not env_checker.check_for_startup():
-            self.log_message("❌ 环境检查失败，无法启动服务器", "ERROR")
+            self.log_message("[错误] 环境检查失败，无法启动服务器", "ERROR")
             return False
-        self.log_message("✅ 环境检查通过")
+        self.log_message("[成功] 环境检查通过")
         
         # 检查可执行文件是否存在
         if use_release:
@@ -316,13 +305,13 @@ class WuWaRun:
             if self.start_single_server(server_key, use_release):
                 success_count += 1
                 # 等待服务端完全启动
-                time.sleep(2)
+                time.sleep(1)
             else:
-                self.log_message(f"❌ 停止启动，因为 {self.servers[server_key]['name']} 启动失败", "ERROR")
+                self.log_message(f"[错误] 停止启动，因为 {self.servers[server_key]['name']} 启动失败", "ERROR")
                 break
                 
         if success_count == len(self.start_order):
-            self.log_message(f"✅ 所有服务端启动完成 ({success_count}/{len(self.start_order)})")
+            self.log_message(f"[成功] 所有服务端启动完成 ({success_count}/{len(self.start_order)})")
             
             # 启动监控线程
             self.start_monitoring()
@@ -330,7 +319,7 @@ class WuWaRun:
             self.log_message("=== 服务端启动完成 ===")
             return True
         else:
-            self.log_message(f"❌ 服务端启动失败 ({success_count}/{len(self.start_order)})")
+            self.log_message(f"[错误] 服务端启动失败 ({success_count}/{len(self.start_order)})")
             # 停止已启动的服务端
             self.stop_all_servers()
             self.log_message("=== 服务端启动失败 ===")
@@ -346,13 +335,13 @@ class WuWaRun:
         # 按相反顺序停止服务端
         for server_key in reversed(self.start_order):
             self.stop_single_server(server_key)
-            time.sleep(2)
+            time.sleep(1)
             
         # 等待监控线程结束
         if self.monitor_thread and self.monitor_thread.is_alive():
             self.monitor_thread.join(timeout=5)
             
-        self.log_message("✅ 所有服务端已停止")
+        self.log_message("[成功] 所有服务端已停止")
         self.log_message("=== 服务端停止完成 ===")
         
     def start_monitoring(self):
@@ -361,7 +350,7 @@ class WuWaRun:
             self.monitor_thread = Thread(target=self._monitor_servers)
             self.monitor_thread.daemon = True
             self.monitor_thread.start()
-            self.log_message("✅ 服务端监控已启动")
+            self.log_message("[成功] 服务端监控已启动")
             
     def _monitor_servers(self):
         """监控服务端状态"""
@@ -377,15 +366,15 @@ class WuWaRun:
                             
                             # 检查是否是通过stop.py停止的
                             if self.stop_flag_file.exists():
-                                self.log_message(f"ℹ️  {server['name']} 通过stop.py正常停止 (退出码: {return_code})")
+                                self.log_message(f"[信息] {server['name']} 通过stop.py正常停止 (退出码: {return_code})")
                                 server["process"] = None
                                 server["start_time"] = None
                                 continue
                             
-                            self.log_message(f"⚠️  {server['name']} 意外退出 (退出码: {return_code})", "WARNING")
+                            self.log_message(f"[警告] {server['name']} 意外退出 (退出码: {return_code})", "WARNING")
                             
                             # 禁用自动重启功能（根据用户要求）
-                            self.log_message(f"ℹ️  自动重启已禁用，{server['name']} 不会自动重启")
+                            self.log_message(f"[信息] 自动重启已禁用，{server['name']} 不会自动重启")
                             server["process"] = None
                             server["start_time"] = None
                                 
@@ -455,15 +444,15 @@ class WuWaRun:
                 password="password"
             )
             conn.close()
-            self.log_message("✅ PostgreSQL数据库连接正常")
+            self.log_message("[成功] PostgreSQL数据库连接正常")
             return True
             
         except ImportError:
-            self.log_message("⚠️  psycopg2模块未安装，无法检查数据库连接", "WARNING")
+            self.log_message("[警告] psycopg2模块未安装，无法检查数据库连接", "WARNING")
             return True  # 假设数据库正常
             
         except Exception as e:
-            self.log_message(f"❌ PostgreSQL数据库连接失败: {e}", "ERROR")
+            self.log_message(f"[错误] PostgreSQL数据库连接失败: {e}", "ERROR")
             self.log_message("请确保PostgreSQL已安装并按照环境配置指南正确配置", "ERROR")
             self.log_message("配置指南位置: docs/环境配置完整指南.md", "INFO")
             return False

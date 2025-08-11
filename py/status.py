@@ -91,7 +91,7 @@ class WuWaStatus:
             # 如果无法获取网络连接信息，尝试socket连接
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.settimeout(0.1)  # 进一步减少超时时间到0.1秒
+                    s.settimeout(0.05)  # 减少超时时间到0.05秒
                     result = s.connect_ex(('127.0.0.1', port))
                     if result == 0:
                         return {
@@ -165,16 +165,17 @@ class WuWaStatus:
                     proc_info = proc.info
                     proc_name = proc_info['name'].lower()
                     
-                    # 快速过滤：只检查包含'wicked'的进程
-                    if 'wicked' not in proc_name:
+                    # 快速过滤：只检查包含'wicked'或'waifus'的进程
+                    if 'wicked' not in proc_name and 'waifus' not in proc_name:
                         continue
                         
                     cmdline = ' '.join(proc_info['cmdline']) if proc_info['cmdline'] else ''
+                    cmdline_lower = cmdline.lower()
                     
                     # 检查是否是我们的服务端进程
                     for server_key, names in server_names.items():
                         if (names['name_lower'] in proc_name or 
-                            names['name'] in cmdline or
+                            names['name_lower'] in cmdline_lower or
                             (proc_name.endswith('.exe') and names['name_underscore'] in proc_name)):
                             
                             # 获取进程详细信息
@@ -218,16 +219,16 @@ class WuWaStatus:
             cpu_percent = psutil.cpu_percent(interval=None)
             cpu_count = psutil.cpu_count()
             
-            # 内存信息
+            # 内存信息 - 一次性获取所有内存信息
             memory = psutil.virtual_memory()
-            memory_total_gb = memory.total / 1024 / 1024 / 1024
-            memory_used_gb = memory.used / 1024 / 1024 / 1024
+            memory_total_gb = memory.total / (1024 ** 3)  # 使用幂运算更高效
+            memory_used_gb = memory.used / (1024 ** 3)
             memory_percent = memory.percent
             
-            # 磁盘信息
+            # 磁盘信息 - 只检查项目根目录
             disk = psutil.disk_usage(str(self.project_root))
-            disk_total_gb = disk.total / 1024 / 1024 / 1024
-            disk_used_gb = disk.used / 1024 / 1024 / 1024
+            disk_total_gb = disk.total / (1024 ** 3)
+            disk_used_gb = disk.used / (1024 ** 3)
             disk_percent = (disk.used / disk.total) * 100
             
             return {
@@ -288,7 +289,7 @@ class WuWaStatus:
         all_port_status = self.get_all_port_status()
         
         # 显示服务端状态
-        print("\n📊 服务端状态:")
+        print("\n[服务端状态]")
         print("-" * 80)
         
         running_count = 0
@@ -302,7 +303,7 @@ class WuWaStatus:
             # 检查进程状态
             if server_key in processes:
                 proc_info = processes[server_key]
-                status = "🟢 运行中"
+                status = "[运行中]"
                 running_count += 1
                 
                 if detailed:
@@ -317,22 +318,22 @@ class WuWaStatus:
                 else:
                     print(f"{description:15} | 端口 {port:4} | {status} | PID {proc_info['pid']:6} | {self.format_uptime(proc_info['uptime'])}")
             else:
-                status = "🔴 未运行"
+                status = "[未运行]"
                 if detailed:
                     print(f"\n{description} (端口 {port}):")
                     print(f"  状态: {status}")
                     if port_status['listening']:
-                        print(f"  ⚠️  端口被其他进程占用: PID {port_status['pid']}")
+                        print(f"  [警告] 端口被其他进程占用: PID {port_status['pid']}")
                 else:
                     print(f"{description:15} | 端口 {port:4} | {status} | {'':12} | {'':10}")
                     
-        print(f"\n📈 总计: {running_count}/{len(self.servers)} 个服务端正在运行")
+        print(f"\n[总计] {running_count}/{len(self.servers)} 个服务端正在运行")
         
         # 显示系统信息
         if detailed:
             system_info = self.get_system_info()
             if system_info:
-                print("\n💻 系统资源:")
+                print("\n[系统资源]")
                 print("-" * 40)
                 print(f"CPU使用率: {system_info['cpu']['percent']:.1f}% ({system_info['cpu']['count']} 核心)")
                 print(f"内存使用: {system_info['memory']['used_gb']:.1f}GB / {system_info['memory']['total_gb']:.1f}GB ({system_info['memory']['percent']:.1f}%)")
@@ -346,7 +347,7 @@ class WuWaStatus:
         
     def show_log_files_info(self):
         """显示日志文件信息"""
-        print("\n📝 日志文件:")
+        print("\n[日志文件]")
         print("-" * 40)
         
         log_files = [
@@ -359,18 +360,31 @@ class WuWaStatus:
             "game-server.log"
         ]
         
+        # 批量检查文件存在性，减少系统调用
+        existing_files = {}
         for log_file in log_files:
             log_path = self.logs_dir / log_file
-            if log_path.exists():
-                stat = log_path.stat()
-                size_mb = stat.st_size / 1024 / 1024
-                mtime = datetime.fromtimestamp(stat.st_mtime)
-                print(f"  {log_file:20} | {size_mb:6.1f} MB | {mtime.strftime('%Y-%m-%d %H:%M:%S')}")
+            try:
+                if log_path.exists():
+                    stat = log_path.stat()
+                    existing_files[log_file] = {
+                        'size_mb': stat.st_size / (1024 ** 2),
+                        'mtime': datetime.fromtimestamp(stat.st_mtime)
+                    }
+            except (OSError, IOError):
+                # 文件可能在检查过程中被删除
+                pass
+        
+        # 显示文件信息
+        for log_file in log_files:
+            if log_file in existing_files:
+                file_info = existing_files[log_file]
+                print(f"  {log_file:20} | {file_info['size_mb']:6.1f} MB | {file_info['mtime'].strftime('%Y-%m-%d %H:%M:%S')}")
             else:
                 print(f"  {log_file:20} | {'不存在':>6} | {'':19}")
                 
-    def monitor_continuously(self, interval=10):
-        """持续监控模式"""
+    def monitor_continuously(self, interval=2):
+        """持续监控模式，优化为2秒间隔"""
         self.monitoring = True
         self.monitor_event.clear()
         
@@ -382,7 +396,7 @@ class WuWaStatus:
                 # 清屏
                 os.system('cls' if os.name == 'nt' else 'clear')
                 
-                # 显示状态
+                # 显示状态 - 使用简化模式提高速度
                 self.show_status(detailed=False)
                 
                 # 等待指定时间或停止信号

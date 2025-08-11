@@ -71,23 +71,23 @@ class WuWaDebugRun:
         self.log_message("=== 检查服务端可执行文件 ===")
         
         if not self.release_dir.exists():
-            self.log_message(f"❌ Release目录不存在: {self.release_dir}", "ERROR")
+            self.log_message(f"[错误] Release目录不存在: {self.release_dir}", "ERROR")
             return False
             
         missing_files = []
         for server in self.servers:
             exe_path = self.release_dir / server["exe"]
             if exe_path.exists():
-                self.log_message(f"✅ {server['description']} - {server['exe']}")
+                self.log_message(f"[成功] {server['description']} - {server['exe']}")
             else:
-                self.log_message(f"❌ {server['description']} - {server['exe']} (缺失)", "ERROR")
+                self.log_message(f"[错误] {server['description']} - {server['exe']} (缺失)", "ERROR")
                 missing_files.append(server["exe"])
                 
         if missing_files:
-            self.log_message(f"❌ 缺失文件: {', '.join(missing_files)}", "ERROR")
+            self.log_message(f"[错误] 缺失文件: {', '.join(missing_files)}", "ERROR")
             return False
             
-        self.log_message("✅ 所有服务端可执行文件检查完成")
+        self.log_message("[成功] 所有服务端可执行文件检查完成")
         return True
         
     def open_powershell_window(self, server):
@@ -122,18 +122,22 @@ class WuWaDebugRun:
                 ps_command
             ]
             
-            # 启动新的PowerShell窗口
+            # 启动新的PowerShell窗口，确保进程完全独立
             process = subprocess.Popen(
                 cmd,
-                creationflags=subprocess.CREATE_NEW_CONSOLE,
-                cwd=str(self.release_dir)
+                creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS,
+                cwd=str(self.release_dir),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True
             )
             
-            self.log_message(f"✅ {server['description']} PowerShell窗口已打开 (PID: {process.pid})")
+            self.log_message(f"[成功] {server['description']} PowerShell窗口已打开 (PID: {process.pid})")
             return process
             
         except Exception as e:
-            self.log_message(f"❌ 打开 {server['description']} PowerShell窗口失败: {e}", "ERROR")
+            self.log_message(f"[错误] 打开 {server['description']} PowerShell窗口失败: {e}", "ERROR")
             return None
             
     def run_debug_mode(self):
@@ -142,7 +146,7 @@ class WuWaDebugRun:
         
         # 检查可执行文件
         if not self.check_release_files():
-            self.log_message("❌ 可执行文件检查失败，无法启动调试模式", "ERROR")
+            self.log_message("[错误] 可执行文件检查失败，无法启动调试模式", "ERROR")
             return False
             
         print("\n" + "=" * 80)
@@ -153,12 +157,12 @@ class WuWaDebugRun:
         for i, server in enumerate(self.servers, 1):
             print(f"  {i}. {server['description']} (端口: {server['port']})")
             
-        print("\n⚠️  注意事项：")
-        print("  • 每个服务端将在独立的PowerShell窗口中运行")
-        print("  • 可以直接看到服务端的原始输出和错误信息")
-        print("  • 在各个窗口中按 Ctrl+C 可停止对应的服务端")
-        print("  • 建议按顺序启动：config → hotpatch → login → gateway → game")
-        print("  • 如果某个服务端启动失败，请检查配置文件和数据库连接")
+        print("\n[注意] 注意事项：")
+        print("  - 每个服务端将在独立的PowerShell窗口中运行")
+        print("  - 可以直接看到服务端的原始输出和错误信息")
+        print("  - 在各个窗口中按 Ctrl+C 可停止对应的服务端")
+        print("  - 建议按顺序启动：config → hotpatch → login → gateway → game")
+        print("  - 如果某个服务端启动失败，请检查配置文件和数据库连接")
         
         confirm = input("\n是否继续启动调试模式？(Y/n): ").strip().lower()
         if confirm not in ['', 'y', 'yes']:
@@ -182,40 +186,40 @@ class WuWaDebugRun:
                     self.log_message(f"等待1秒后启动下一个服务端...")
                     time.sleep(1)
             else:
-                self.log_message(f"❌ {server['description']} 启动失败", "ERROR")
+                self.log_message(f"[错误] {server['description']} 启动失败", "ERROR")
                 
         if processes:
-            self.log_message(f"✅ 调试模式启动完成，已打开 {len(processes)} 个PowerShell窗口")
+            self.log_message(f"[成功] 调试模式启动完成，已打开 {len(processes)} 个PowerShell窗口")
             self.log_message("=== 调试模式运行中 ===")
             
             print("\n" + "=" * 80)
             print("                    调试模式运行中")
             print("=" * 80)
-            print(f"\n✅ 已成功打开 {len(processes)} 个PowerShell窗口")
-            print("\n📋 服务端状态：")
+            print(f"\n[成功] 已成功打开 {len(processes)} 个PowerShell窗口")
+            print("\n[状态] 服务端状态：")
             
             for i, server in enumerate(self.servers[:len(processes)]):
                 print(f"  {i+1}. {server['description']} - PowerShell窗口已打开")
                 
-            print("\n💡 使用说明：")
-            print("  • 每个服务端在独立的PowerShell窗口中运行")
-            print("  • 可以直接查看服务端的输出和错误信息")
-            print("  • 在对应窗口中按 Ctrl+C 停止服务端")
-            print("  • 关闭PowerShell窗口也会停止对应的服务端")
-            print("  • 按 Enter 键退出调试模式监控（不会停止服务端）")
+            print("\n[说明] 使用说明：")
+            print("  - 每个服务端在独立的PowerShell窗口中运行")
+            print("  - 可以直接查看服务端的输出和错误信息")
+            print("  - 在对应窗口中按 Ctrl+C 停止服务端")
+            print("  - 关闭PowerShell窗口也会停止对应的服务端")
+            print("  - 按 Enter 键退出调试模式监控（不会停止服务端）")
             
             input("\n按 Enter 键退出调试模式监控...")
             
             self.log_message("用户退出调试模式监控")
             self.log_message("=== 调试模式监控结束 ===")
             
-            print("\n✅ 调试模式监控已退出")
-            print("💡 服务端仍在各自的PowerShell窗口中运行")
-            print("💡 如需停止服务端，请在对应的PowerShell窗口中按 Ctrl+C")
+            print("\n[成功] 调试模式监控已退出")
+            print("[提示] 服务端仍在各自的PowerShell窗口中运行")
+            print("[提示] 如需停止服务端，请在对应的PowerShell窗口中按 Ctrl+C")
             
             return True
         else:
-            self.log_message("❌ 没有成功启动任何服务端", "ERROR")
+            self.log_message("[错误] 没有成功启动任何服务端", "ERROR")
             return False
             
 def main():
@@ -232,16 +236,16 @@ def main():
         success = debug_runner.run_debug_mode()
         
         if success:
-            print("\n✅ 调试模式执行完成")
+            print("\n[成功] 调试模式执行完成")
         else:
-            print("\n❌ 调试模式执行失败")
+            print("\n[错误] 调试模式执行失败")
             sys.exit(1)
             
     except KeyboardInterrupt:
-        print("\n\n⚠️  用户中断操作")
+        print("\n\n[警告] 用户中断操作")
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ 调试模式执行过程中发生错误: {e}")
+        print(f"\n[错误] 调试模式执行过程中发生错误: {e}")
         sys.exit(1)
         
 if __name__ == "__main__":

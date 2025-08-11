@@ -37,13 +37,13 @@ class WuWaUninstaller:
         
         # 输出到控制台
         if log_type == "ERROR":
-            print(f"❌ {message}")
+            print(f"[错误] {message}")
         elif log_type == "WARNING":
-            print(f"⚠️  {message}")
+            print(f"[警告] {message}")
         elif log_type == "SUCCESS":
-            print(f"✅ {message}")
+            print(f"[成功] {message}")
         else:
-            print(f"ℹ️  {message}")
+            print(f"[信息] {message}")
         
         # 写入日志文件
         try:
@@ -71,7 +71,7 @@ class WuWaUninstaller:
             )
             
             if result.returncode == 0:
-                self.log_message("✅ 所有服务端已成功停止", "SUCCESS")
+                self.log_message("[成功] 所有服务端已成功停止", "SUCCESS")
                 return True
             else:
                 self.log_message(f"停止服务端时出现错误: {result.stderr}", "ERROR")
@@ -109,15 +109,15 @@ class WuWaUninstaller:
                         shutil.copy2(source_path, backup_dir / item)
                     else:
                         shutil.copytree(source_path, backup_dir / item, dirs_exist_ok=True)
-                    self.log_message(f"✅ 已备份{description}: {item}", "SUCCESS")
+                    self.log_message(f"[成功] 已备份{description}: {item}", "SUCCESS")
                     backed_up = True
                 except Exception as e:
                     self.log_message(f"备份{description}失败: {e}", "ERROR")
         
         if backed_up:
-            self.log_message(f"✅ 数据已备份到: {backup_dir}", "SUCCESS")
+            self.log_message(f"[成功] 数据已备份到: {backup_dir}", "SUCCESS")
         else:
-            self.log_message("ℹ️  没有找到需要备份的数据")
+            self.log_message("[信息] 没有找到需要备份的数据")
         
         return backup_dir if backed_up else None
     
@@ -149,7 +149,7 @@ del "%~f0"
             with open(batch_file, 'w', encoding='gbk') as f:
                 f.write(batch_content)
             
-            self.log_message(f"✅ 删除脚本已创建: {batch_file}", "SUCCESS")
+            self.log_message(f"[成功] 删除脚本已创建: {batch_file}", "SUCCESS")
             return batch_file
             
         except Exception as e:
@@ -182,7 +182,7 @@ del "%~f0"
         try:
             # 启动批处理文件
             subprocess.Popen([str(batch_file)], shell=True)
-            self.log_message("✅ 删除脚本已启动，uninstall.py即将退出", "SUCCESS")
+            self.log_message("[成功] 删除脚本已启动，uninstall.py即将退出", "SUCCESS")
             return True
         except Exception as e:
             self.log_message(f"启动删除脚本失败: {e}", "ERROR")
@@ -195,8 +195,8 @@ def main():
     
     print("鸣潮服务端完全卸载工具")
     print("=" * 40)
-    print("⚠️  警告: 此操作将完全删除Server文件夹及其所有内容！")
-    print("⚠️  重要数据将自动备份到桌面")
+    print("[警告] 此操作将完全删除Server文件夹及其所有内容！")
+    print("[警告] 重要数据将自动备份到桌面")
     print("=" * 40)
     
     try:
@@ -208,11 +208,11 @@ def main():
         
         # 执行完全卸载
         if uninstaller.complete_uninstall():
-            print("\n✅ 卸载脚本已启动，程序即将退出")
+            print("\n[成功] 卸载脚本已启动，程序即将退出")
             print("删除过程将在后台继续进行...")
             time.sleep(2)  # 给用户时间看到消息
         else:
-            print("\n❌ 卸载过程中出现错误")
+            print("\n[错误] 卸载过程中出现错误")
             input("按回车键退出...")
             
     except KeyboardInterrupt:

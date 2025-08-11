@@ -45,7 +45,7 @@ class WuWaEnvironmentChecker:
             if os_name != "Windows":
                 self.add_result(
                     "操作系统", False, 
-                    f"❌ 不支持的操作系统: {os_name}",
+                    f"[错误] 不支持的操作系统: {os_name}",
                     "发行版仅支持Windows 10+和Windows Server 2019+"
                 )
                 return False
@@ -59,7 +59,7 @@ class WuWaEnvironmentChecker:
                 # Windows 10
                 self.add_result(
                     "操作系统", True, 
-                    f"✅ Windows 10 (支持)",
+                    f"[成功] Windows 10 (支持)",
                     ""
                 )
                 return True
@@ -67,7 +67,7 @@ class WuWaEnvironmentChecker:
                 # Windows 11
                 self.add_result(
                     "操作系统", True, 
-                    f"✅ Windows 11 (支持)",
+                    f"[成功] Windows 11 (支持)",
                     ""
                 )
                 return True
@@ -76,14 +76,14 @@ class WuWaEnvironmentChecker:
                 if "2019" in platform_info or "2022" in platform_info:
                     self.add_result(
                         "操作系统", True, 
-                        f"✅ Windows Server (支持)",
+                        f"[成功] Windows Server (支持)",
                         ""
                     )
                     return True
                 else:
                     self.add_result(
                         "操作系统", False, 
-                        f"❌ 不支持的Windows Server版本",
+                        f"[错误] 不支持的Windows Server版本",
                         "发行版仅支持Windows Server 2019+"
                     )
                     return False
@@ -91,7 +91,7 @@ class WuWaEnvironmentChecker:
                 # 其他Windows版本（如Windows 7, 8, 8.1等）
                 self.add_result(
                     "操作系统", False, 
-                    f"❌ 不支持的Windows版本: {os_version}",
+                    f"[错误] 不支持的Windows版本: {os_version}",
                     "发行版仅支持Windows 10+和Windows Server 2019+"
                 )
                 return False
@@ -99,7 +99,7 @@ class WuWaEnvironmentChecker:
         except Exception as e:
             self.add_result(
                 "操作系统", False, 
-                f"❌ 无法检测操作系统: {e}",
+                f"[错误] 无法检测操作系统: {e}",
                 "请确保系统环境正常，仅支持Windows 10+和Windows Server 2019+"
             )
             return False
@@ -113,21 +113,21 @@ class WuWaEnvironmentChecker:
             if python_version.major >= 3 and python_version.minor >= 8:
                 self.add_result(
                     "Python版本", True, 
-                    f"✅ Python {version_str}",
+                    f"[成功] Python {version_str}",
                     ""
                 )
                 return True
             else:
                 self.add_result(
                     "Python版本", False, 
-                    f"❌ Python版本过低: {version_str}",
+                    f"[错误] Python版本过低: {version_str}",
                     "请升级到Python 3.8或更高版本"
                 )
                 return False
         except Exception as e:
             self.add_result(
                 "Python版本", False, 
-                f"❌ 无法检测Python版本: {e}",
+                f"[错误] 无法检测Python版本: {e}",
                 "请确保Python环境正常"
             )
             return False
@@ -140,7 +140,7 @@ class WuWaEnvironmentChecker:
             if not self.release_dir.exists():
                 self.add_result(
                     "可执行文件", False, 
-                    "❌ release目录不存在",
+                    "[错误] release目录不存在",
                     "请确保release目录和可执行文件存在"
                 )
                 return False
@@ -167,14 +167,14 @@ class WuWaEnvironmentChecker:
                 
                 self.add_result(
                     "可执行文件", False, 
-                    f"❌ 缺少可执行文件: {', '.join(missing_files)}",
+                    f"[错误] 缺少可执行文件: {', '.join(missing_files)}",
                     "请确保release目录包含所有必要的可执行文件"
                 )
                 return False
             else:
                 self.add_result(
                     "可执行文件", True, 
-                    "✅ 所有必要的可执行文件都存在",
+                    "[成功] 所有必要的可执行文件都存在",
                     ""
                 )
                 return True
@@ -182,7 +182,7 @@ class WuWaEnvironmentChecker:
         except Exception as e:
             self.add_result(
                 "可执行文件", False, 
-                f"❌ 检查可执行文件时出错: {e}",
+                f"[错误] 检查可执行文件时出错: {e}",
                 "请检查文件系统权限"
             )
             return False
@@ -207,14 +207,14 @@ class WuWaEnvironmentChecker:
                     if result != 0:
                         self.add_result(
                             "PostgreSQL连接", False,
-                            f"❌ 无法连接到PostgreSQL服务器 {host}:{port}",
+                            f"[错误] 无法连接到PostgreSQL服务器 {host}:{port}",
                             "请确保PostgreSQL服务已启动并监听在5432端口"
                         )
                         return False
             except Exception as e:
                 self.add_result(
                     "PostgreSQL连接", False,
-                    f"❌ 网络连接检查失败: {e}",
+                    f"[错误] 网络连接检查失败: {e}",
                     "请检查网络配置和防火墙设置"
                 )
                 return False
@@ -244,7 +244,7 @@ class WuWaEnvironmentChecker:
             if not psycopg2_available and not psql_available:
                 self.add_result(
                     "PostgreSQL连接", False,
-                    "❌ 无法测试PostgreSQL连接：缺少必要的连接工具",
+                    "[错误] 无法测试PostgreSQL连接：缺少必要的连接工具",
                     "请选择以下方案之一：\n" +
                     "    1. 安装Python库: pip install psycopg2-binary\n" +
                     "    2. 安装PostgreSQL客户端工具（包含psql命令）\n" +
@@ -269,7 +269,7 @@ class WuWaEnvironmentChecker:
                             
                             self.add_result(
                                 "PostgreSQL连接", True,
-                                f"✅ PostgreSQL连接成功\n    数据库: {database}@{host}:{port}\n    版本: {version[:50]}...",
+                                f"[成功] PostgreSQL连接成功\n    数据库: {database}@{host}:{port}\n    版本: {version[:50]}...",
                                 ""
                             )
                             return True
@@ -287,7 +287,7 @@ class WuWaEnvironmentChecker:
                         
                     self.add_result(
                         "PostgreSQL连接", False,
-                        f"❌ PostgreSQL连接失败: {error_msg}",
+                        f"[错误] PostgreSQL连接失败: {error_msg}",
                         suggestion
                     )
                     return False
@@ -311,7 +311,7 @@ class WuWaEnvironmentChecker:
                     if result.returncode == 0:
                         self.add_result(
                             "PostgreSQL连接", True,
-                            f"✅ PostgreSQL连接成功（通过psql命令）\n    数据库: {database}@{host}:{port}",
+                            f"[成功] PostgreSQL连接成功（通过psql命令）\n    数据库: {database}@{host}:{port}",
                             "建议安装psycopg2以获得更好的连接测试: pip install psycopg2-binary"
                         )
                         return True
@@ -319,7 +319,7 @@ class WuWaEnvironmentChecker:
                         error_msg = result.stderr.strip() if result.stderr else "未知错误"
                         self.add_result(
                             "PostgreSQL连接", False,
-                            f"❌ PostgreSQL连接失败: {error_msg}",
+                            f"[错误] PostgreSQL连接失败: {error_msg}",
                             "请检查数据库配置、用户权限和密码"
                         )
                         return False
@@ -327,7 +327,7 @@ class WuWaEnvironmentChecker:
                 except Exception as e:
                     self.add_result(
                         "PostgreSQL连接", False,
-                        f"❌ 使用psql命令测试连接时出错: {e}",
+                        f"[错误] 使用psql命令测试连接时出错: {e}",
                         "请检查PostgreSQL客户端工具安装"
                     )
                     return False
@@ -336,7 +336,7 @@ class WuWaEnvironmentChecker:
         except Exception as e:
             self.add_result(
                 "PostgreSQL连接", False,
-                f"❌ PostgreSQL连接检查时出错: {e}",
+                f"[错误] PostgreSQL连接检查时出错: {e}",
                 "请检查系统环境和网络配置"
             )
             return False
@@ -349,7 +349,7 @@ class WuWaEnvironmentChecker:
             if not self.release_dir.exists():
                 self.add_result(
                     "Release目录", False, 
-                    "❌ release目录不存在",
+                    "[错误] release目录不存在",
                     "请确保release目录存在"
                 )
                 return False
@@ -372,14 +372,14 @@ class WuWaEnvironmentChecker:
             if missing_files:
                 self.add_result(
                         "Release目录", False, 
-                        f"❌ 缺少可执行文件: {', '.join(missing_files)}",
+                        f"[错误] 缺少可执行文件: {', '.join(missing_files)}",
                         "请确保release目录包含所有必要的可执行文件"
                     )
                 return False
             else:
                 self.add_result(
                     "Release目录", True, 
-                    "✅ release目录存在且包含所有必要的可执行文件",
+                    "[成功] release目录存在且包含所有必要的可执行文件",
                     ""
                 )
                 return True
@@ -387,7 +387,7 @@ class WuWaEnvironmentChecker:
         except Exception as e:
             self.add_result(
                 "Release目录", False, 
-                f"❌ 检查release目录时出错: {e}",
+                f"[错误] 检查release目录时出错: {e}",
                 "请检查文件系统权限"
             )
             return False
@@ -407,14 +407,14 @@ class WuWaEnvironmentChecker:
             if missing_modules:
                 self.add_result(
                     "Python依赖", False, 
-                    f"❌ 缺少Python模块: {', '.join(missing_modules)}",
+                    f"[错误] 缺少Python模块: {', '.join(missing_modules)}",
                     "请运行: pip install -r requirements.txt"
                 )
                 return False
             else:
                 self.add_result(
                     "Python依赖", True, 
-                    "✅ 所有必要的Python模块已安装",
+                    "[成功] 所有必要的Python模块已安装",
                     ""
                 )
                 return True
@@ -422,7 +422,7 @@ class WuWaEnvironmentChecker:
         except Exception as e:
             self.add_result(
                 "Python依赖", False, 
-                f"❌ 检查Python依赖时出错: {e}",
+                f"[错误] 检查Python依赖时出错: {e}",
                 "请检查Python环境"
             )
             return False
@@ -462,9 +462,9 @@ class WuWaEnvironmentChecker:
         
         if not silent:
             if all_passed:
-                print("\n✅ 环境检查通过，可以启动服务端")
+                print("\n[成功] 环境检查通过，可以启动服务端")
             else:
-                print("\n❌ 环境检查未通过，请解决上述问题后重试")
+                print("\n[错误] 环境检查未通过，请解决上述问题后重试")
             print()
             
         return all_passed, self.check_results
@@ -487,10 +487,10 @@ class WuWaEnvironmentChecker:
         
         # 检查关键项目是否通过
         if not all(critical_checks):
-            print("❌ 运行环境检查失败，请解决问题后重试")
+            print("[错误] 运行环境检查失败，请解决问题后重试")
             return False
             
-        print("✅ 运行环境检查通过")
+        print("[成功] 运行环境检查通过")
         return True
         
 
