@@ -126,7 +126,7 @@ class WuWaStop:
                         process = psutil.Process(conn.pid)
                         processes.append(process)
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
+                        continue
         except (psutil.AccessDenied, AttributeError):
             pass
         return processes
