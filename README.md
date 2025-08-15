@@ -27,7 +27,7 @@ Set-Location "D:\WuWaPS\Client\Client\Binaries\Win64"
 
 ```
 Server/
-	   ├── docs/         # 配置文档
+	      ├── docs/         # 配置文档
        ├── release/      # 发行版目录
        ├── logs/         # 日志目录
        ├── py/           # 脚本目录
