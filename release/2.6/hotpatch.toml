@@ -1,0 +1,11 @@
+[network]
+http_addr = "0.0.0.0:10002"
+
+[encryption]
+key = "t+AEu5SGdpz06tomonajLMau9AJgmyTvVhz9VtGf1+0="
+iv = "fprc5lBWADQB7tim0R2JxQ=="
+
+[serve]
+serve_dir_path = "data/assets/hotpatch-server"
+cdn_serve_path = "/"
+cdn_fallback = ["http://cdn-huoshan-cn-mc.aki-game.com", "http://cdn-qcloud-cn-mc.aki-game.com", "http://cdn-aliyun-cn-mc.aki-game.com"]
