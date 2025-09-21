@@ -116,7 +116,7 @@ class WuWaConfig:
     # 性能优化配置
     PERFORMANCE = {
         "max_concurrent_servers": 5,  # 最大并发启动服务端数量
-        "startup_delay": 2,  # 服务端启动间隔（秒）
+        "startup_delay": 0,  # 服务端启动间隔（秒）- 已禁用延迟
         "cache_enabled": True,  # 启用缓存机制
         "cache_ttl": 300,  # 缓存生存时间（秒）
         "thread_pool_size": 4  # 线程池大小
@@ -1581,12 +1581,8 @@ class WuWaRun(BaseWuWaComponent):
         return processes
     
     def _start_server_with_delay(self, server_index: int) -> Optional[subprocess.Popen]:
-        """带延迟的服务端启动（用于并发启动）"""
-        # 添加启动延迟，避免同时启动造成资源竞争
-        delay = server_index * WuWaConfig.PERFORMANCE["startup_delay"]
-        if delay > 0:
-            time.sleep(delay)
-            
+        """启动服务端（原延迟功能已移除）"""
+        # 直接启动服务端，不再添加延迟
         return self.start_server(server_index)
     
     def stop_all_servers(self) -> bool:
@@ -2435,8 +2431,8 @@ class WuWaManager(BaseWuWaComponent):
         else:
             self.log_message("配置文件路径更新失败，将使用现有配置", "WARNING")
         
-        # 先进行环境检查
-        if self.checker.run_all_checks(target_version):
+        # 先进行环境检查（仅检查服务端环境）
+        if self.checker.run_all_checks(target_version, check_client=False):
             processes = self.runner.start_all_servers()
             if processes:
                 self.log_message(f"已启动 {len(processes)} 个服务端", "INFO")
@@ -2515,7 +2511,7 @@ class WuWaManager(BaseWuWaComponent):
         else:
             self.log_message("配置文件路径更新失败，将使用现有配置", "WARNING")
         
-        if self.checker.check_environment(version):
+        if self.checker.run_all_checks(version):
             processes = self.runner.start_all_servers()
             if processes:
                 self.log_message(f"已启动 {len(processes)} 个服务端", "INFO")
@@ -2523,11 +2519,10 @@ class WuWaManager(BaseWuWaComponent):
                 # 3. 启动客户端
                 self.log_message("=== 步骤 3: 启动客户端 ===", "INFO")
                 try:
-                    client_dir = self.client_patcher.get_script_dir().parent / "Client" / "Client" / "Binaries" / "Win64"
+                    client_dir = self.client_patcher.get_script_directory().parent / "Client" / "Client" / "Binaries" / "Win64"
                     launcher_path = client_dir / "launcher.exe"
                     
                     if launcher_path.exists():
-                        import subprocess
                         subprocess.Popen([str(launcher_path)], cwd=str(client_dir))
                         self.log_message("[成功] 客户端已启动", "INFO")
                         self.log_message("=== 全部完成 ===", "INFO")
