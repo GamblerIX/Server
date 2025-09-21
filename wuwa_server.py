@@ -66,11 +66,26 @@ class WuWaConfig:
     # 路径配置
     PATHS = {
         "client_binary": "Client/Client/Binaries/Win64",
+        "client_content": "Client/Client/Content/Paks",
+        "server_version": "Server/version",
         "launcher_exe": "launcher.exe",
         "pak_file": "rr_fixes_100_p.pak",
         "config_file": "config.toml",
         "logs_dir": "logs",
         "release_dir": "release"
+    }
+    
+    # 文件类型到目标目录的映射配置
+    FILE_TARGET_MAPPING = {
+        # .pak文件复制到Content/Paks目录
+        "pak": "client_content",
+        # .dll和.exe文件复制到Binaries/Win64目录
+        "dll": "client_binary",
+        "exe": "client_binary",
+        # 配置文件复制到Binaries/Win64目录
+        "toml": "client_binary",
+        # 默认目录
+        "default": "client_binary"
     }
     
     # 文件扩展名
@@ -115,6 +130,98 @@ class WuWaConfig:
         "gateway": "gateway-server.log",
         "game": "game-server.log"
     }
+
+
+class PathResolver:
+    """路径解析器 - 统一管理和解析所有路径配置"""
+    
+    def __init__(self, project_root: Path):
+        self.project_root = project_root
+        # 修正路径配置 - project_root已经是Server目录
+        self.server_dir = project_root  # 不需要再添加"Server"
+        self.client_dir = project_root.parent / "Client"  # 上级目录的Client
+        
+        # 缓存解析结果
+        self._path_cache = {}
+        
+    def get_client_binary_path(self) -> Path:
+        """获取客户端二进制文件目录路径"""
+        cache_key = "client_binary"
+        if cache_key not in self._path_cache:
+            self._path_cache[cache_key] = self.client_dir / "Client" / "Binaries" / "Win64"
+        return self._path_cache[cache_key]
+    
+    def get_client_content_path(self) -> Path:
+        """获取客户端内容目录路径"""
+        cache_key = "client_content"
+        if cache_key not in self._path_cache:
+            self._path_cache[cache_key] = self.client_dir / "Client" / "Content" / "Paks"
+        return self._path_cache[cache_key]
+    
+    def get_server_release_path(self, version: str = None) -> Path:
+        """获取服务端发布目录路径"""
+        base_path = self.server_dir / "release"
+        if version:
+            return base_path / version
+        return base_path
+    
+    def get_version_path(self, version: str) -> Path:
+        """获取指定版本的路径"""
+        return self.get_server_release_path(version)
+    
+    def get_logs_path(self) -> Path:
+        """获取日志目录路径"""
+        cache_key = "logs"
+        if cache_key not in self._path_cache:
+            self._path_cache[cache_key] = self.project_root / "logs"
+        return self._path_cache[cache_key]
+    
+    def resolve_file_target_path(self, filename: str) -> Path:
+        """根据文件名解析目标路径"""
+        file_mappings = WuWaConfig.FILE_TARGET_MAPPING
+        
+        # 检查文件扩展名
+        file_ext = Path(filename).suffix.lower()
+        if file_ext in file_mappings:
+            target_type = file_mappings[file_ext]
+        else:
+            # 检查特定文件名
+            if filename in file_mappings:
+                target_type = file_mappings[filename]
+            else:
+                # 默认到二进制目录
+                target_type = "binary"
+        
+        # 根据目标类型返回路径
+        if target_type == "content":
+            return self.get_client_content_path()
+        else:  # binary
+            return self.get_client_binary_path()
+    
+    def validate_path(self, path: Path, create_if_missing: bool = False) -> bool:
+        """验证路径是否存在，可选择自动创建"""
+        if path.exists():
+            return True
+        
+        if create_if_missing:
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                return True
+            except Exception:
+                return False
+        
+        return False
+    
+    def get_relative_path(self, absolute_path: Path) -> str:
+        """获取相对于项目根目录的相对路径"""
+        try:
+            return str(absolute_path.relative_to(self.project_root))
+        except ValueError:
+            return str(absolute_path)
+    
+    def clear_cache(self):
+        """清空路径缓存"""
+        self._path_cache.clear()
 
 
 # ==================== 异常类定义 ====================
@@ -176,6 +283,191 @@ class WuWaClientException(WuWaException):
     """客户端相关异常"""
     def __init__(self, message: str):
         super().__init__(message, 1008)
+
+
+class WuWaPathException(WuWaException):
+    """路径相关异常"""
+    def __init__(self, message: str):
+        super().__init__(message, 1009)
+
+
+class DetailedWuWaException(WuWaException):
+    """增强的异常类 - 提供详细的错误信息和上下文"""
+    
+    def __init__(self, message: str, error_code: int, context: dict = None, 
+                 suggestions: list = None, recoverable: bool = False):
+        super().__init__(message, error_code)
+        self.context = context or {}
+        self.suggestions = suggestions or []
+        self.recoverable = recoverable
+        self.timestamp = datetime.now()
+    
+    def get_detailed_message(self) -> str:
+        """获取详细的错误信息"""
+        details = [f"[错误码:{self.error_code}] {self.message}"]
+        details.append(f"时间: {self.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        if self.context:
+            details.append("上下文信息:")
+            for key, value in self.context.items():
+                details.append(f"  - {key}: {value}")
+        
+        if self.suggestions:
+            details.append("建议解决方案:")
+            for i, suggestion in enumerate(self.suggestions, 1):
+                details.append(f"  {i}. {suggestion}")
+        
+        details.append(f"可恢复: {'是' if self.recoverable else '否'}")
+        
+        return "\n".join(details)
+    
+    def to_dict(self) -> dict:
+        """转换为字典格式"""
+        return {
+            "error_code": self.error_code,
+            "message": self.message,
+            "timestamp": self.timestamp.isoformat(),
+            "context": self.context,
+            "suggestions": self.suggestions,
+            "recoverable": self.recoverable
+        }
+
+
+class ErrorHandler:
+    """错误处理器 - 统一管理错误处理逻辑"""
+    
+    def __init__(self, logger=None):
+        self.logger = logger
+        self.error_history = []
+        self.max_history = 100
+    
+    def handle_exception(self, exception: Exception, operation: str = "", 
+                        context: dict = None, suggestions: list = None) -> DetailedWuWaException:
+        """处理异常并转换为详细异常"""
+        
+        # 如果已经是DetailedWuWaException，直接返回
+        if isinstance(exception, DetailedWuWaException):
+            self._log_exception(exception, operation)
+            self._add_to_history(exception)
+            return exception
+        
+        # 如果是WuWaException，转换为DetailedWuWaException
+        if isinstance(exception, WuWaException):
+            detailed_exception = DetailedWuWaException(
+                message=exception.message,
+                error_code=exception.error_code,
+                context=context or {"operation": operation},
+                suggestions=suggestions or self._get_default_suggestions(exception),
+                recoverable=self._is_recoverable(exception)
+            )
+        else:
+            # 其他异常类型
+            detailed_exception = DetailedWuWaException(
+                message=str(exception),
+                error_code=9999,  # 未知错误
+                context=context or {"operation": operation, "exception_type": type(exception).__name__},
+                suggestions=suggestions or ["检查系统环境", "查看详细日志", "联系技术支持"],
+                recoverable=False
+            )
+        
+        self._log_exception(detailed_exception, operation)
+        self._add_to_history(detailed_exception)
+        return detailed_exception
+    
+    def _log_exception(self, exception: DetailedWuWaException, operation: str):
+        """记录异常日志"""
+        if self.logger:
+            self.logger.error(f"操作 '{operation}' 发生异常:")
+            self.logger.error(exception.get_detailed_message())
+    
+    def _add_to_history(self, exception: DetailedWuWaException):
+        """添加到错误历史"""
+        self.error_history.append(exception)
+        if len(self.error_history) > self.max_history:
+            self.error_history.pop(0)
+    
+    def _get_default_suggestions(self, exception: WuWaException) -> list:
+        """根据异常类型获取默认建议"""
+        suggestions_map = {
+            WuWaConfigException: [
+                "检查配置文件格式是否正确",
+                "验证配置参数是否完整",
+                "重新生成配置文件"
+            ],
+            WuWaFileException: [
+                "检查文件路径是否存在",
+                "验证文件权限",
+                "确保磁盘空间充足"
+            ],
+            WuWaProcessException: [
+                "检查进程是否已启动",
+                "验证端口是否被占用",
+                "重启相关服务"
+            ],
+            WuWaNetworkException: [
+                "检查网络连接",
+                "验证防火墙设置",
+                "确认端口配置"
+            ],
+            WuWaServerException: [
+                "检查服务端文件完整性",
+                "验证服务端配置",
+                "重新启动服务端"
+            ],
+            WuWaEnvironmentException: [
+                "检查系统环境",
+                "验证依赖项安装",
+                "更新系统组件"
+            ],
+            WuWaVersionException: [
+                "检查版本兼容性",
+                "更新到最新版本",
+                "回退到稳定版本"
+            ],
+            WuWaClientException: [
+                "检查客户端文件完整性",
+                "重新应用客户端补丁",
+                "验证客户端配置"
+            ],
+            WuWaPathException: [
+                "检查路径是否存在",
+                "验证路径权限",
+                "使用绝对路径"
+            ]
+        }
+        
+        return suggestions_map.get(type(exception), ["查看详细日志", "重试操作", "联系技术支持"])
+    
+    def _is_recoverable(self, exception: WuWaException) -> bool:
+        """判断异常是否可恢复"""
+        recoverable_types = {
+            WuWaNetworkException,
+            WuWaProcessException,
+            WuWaFileException
+        }
+        return type(exception) in recoverable_types
+    
+    def get_error_summary(self) -> dict:
+        """获取错误统计摘要"""
+        if not self.error_history:
+            return {"total": 0, "by_code": {}, "recent": []}
+        
+        by_code = {}
+        for error in self.error_history:
+            code = error.error_code
+            by_code[code] = by_code.get(code, 0) + 1
+        
+        recent = [error.to_dict() for error in self.error_history[-5:]]
+        
+        return {
+            "total": len(self.error_history),
+            "by_code": by_code,
+            "recent": recent
+        }
+    
+    def clear_history(self):
+        """清空错误历史"""
+        self.error_history.clear()
 
 
 # 错误码常量
@@ -394,6 +686,11 @@ class WuWaConfigManager(BaseWuWaComponent):
     
     def __init__(self, project_root: Path):
         super().__init__(project_root, "ConfigManager")
+    
+    def get_script_directory(self) -> Path:
+        """获取脚本所在目录"""
+        return Path(__file__).parent.absolute()
+    
     def detect_script_directory(self) -> Path:
         """自动检测脚本所在目录"""
         script_dir = Path(__file__).parent.absolute()
@@ -413,6 +710,13 @@ class WuWaConfigManager(BaseWuWaComponent):
             base_path.parent / client_binary_path,
             base_path.parent.parent / client_binary_path
         ]
+        
+        # 特别处理：如果脚本在Server目录，则检查同级的Client目录
+        if base_path.name.lower() == "server":
+            # 检查同级目录中的Client目录
+            sibling_client_path = base_path.parent / client_binary_path
+            possible_paths.insert(0, sibling_client_path)  # 优先检查同级Client目录
+            self.log_message(f"检测到Server目录，优先搜索同级Client目录: {sibling_client_path}")
         
         # 也搜索当前目录的所有子目录
         try:
@@ -547,40 +851,71 @@ class WuWaClientPatcher(BaseWuWaComponent):
     
     def __init__(self, project_root: Path):
         super().__init__(project_root, "ClientPatcher")
+        # 集成PathResolver和ErrorHandler
+        self.path_resolver = PathResolver(project_root)
+        self.error_handler = ErrorHandler(self.logger)
     def get_script_directory(self) -> Path:
         """获取脚本所在目录"""
         return Path(__file__).parent.absolute()
     
     def patch_client(self, version: str) -> bool:
-        """应用客户端补丁"""
+        """应用客户端补丁 - 使用PathResolver和ErrorHandler重构"""
+        operation = f"应用客户端补丁 (版本: {version})"
+        
         try:
-            self.log_message(f"开始应用客户端补丁，版本: {version}")
+            self.log_message(f"开始{operation}")
             
-            # 获取项目根目录路径
-            script_dir = self.get_script_directory()
-            project_root = script_dir.parent  # Server的父目录
+            # 使用PathResolver获取路径
+            source_dir = self.path_resolver.get_version_path(version)
+            client_bin_dir = self.path_resolver.get_client_binary_path()
+            client_content_dir = self.path_resolver.get_client_content_path()
             
-            # 构建路径
-            drive_letter = str(project_root).split(':')[0]  # 获取盘符
-            path_without_drive = str(project_root).replace(f'{drive_letter}:', '').replace('\\', '/')
-            
-            # 源文件目录（Server/release/版本号）
-            source_dir = script_dir / "release" / version
+            # 验证源目录存在
             if not source_dir.exists():
-                self.log_message(f"版本目录不存在: {source_dir}", "ERROR")
-                return False
-            
-            # 目标目录
-            client_bin_dir = Path(f"{drive_letter}:{path_without_drive}/Client/Client/Binaries/Win64")
-            client_pak_dir = Path(f"{drive_letter}:{path_without_drive}/Client/Client/Content/Paks")
+                raise WuWaPathException(f"版本目录不存在: {source_dir}")
             
             # 确保目标目录存在
             client_bin_dir.mkdir(parents=True, exist_ok=True)
-            client_pak_dir.mkdir(parents=True, exist_ok=True)
+            client_content_dir.mkdir(parents=True, exist_ok=True)
             
-            # 需要复制的文件列表
-            files_to_copy = []
+            # 获取需要复制的文件列表
+            files_to_copy = self._get_files_to_copy(source_dir, client_bin_dir, client_content_dir)
             
+            if not files_to_copy:
+                raise WuWaFileException("没有找到需要复制的文件")
+            
+            # 执行文件复制
+            copied_count = self._copy_files(files_to_copy)
+            
+            if copied_count > 0:
+                self.log_message(f"客户端补丁应用完成，共复制 {copied_count} 个文件")
+                return True
+            else:
+                raise WuWaFileException("没有文件被成功复制")
+                
+        except Exception as e:
+            detailed_exception = self.error_handler.handle_exception(
+                e, operation,
+                context={
+                    "version": version,
+                    "source_dir": str(source_dir) if 'source_dir' in locals() else "未知",
+                    "client_bin_dir": str(client_bin_dir) if 'client_bin_dir' in locals() else "未知"
+                },
+                suggestions=[
+                    "检查版本目录是否存在",
+                    "验证客户端目录权限",
+                    "确保磁盘空间充足",
+                    "重新下载版本文件"
+                ]
+            )
+            self.log_message(detailed_exception.get_detailed_message(), "ERROR")
+            return False
+    
+    def _get_files_to_copy(self, source_dir: Path, client_bin_dir: Path, client_content_dir: Path) -> list:
+        """获取需要复制的文件列表"""
+        files_to_copy = []
+        
+        try:
             # 1. 自动查找所有.dll文件
             dll_files = list(source_dir.glob("*.dll"))
             for dll_file in dll_files:
@@ -590,59 +925,62 @@ class WuWaClientPatcher(BaseWuWaComponent):
                     "description": f"DLL文件 ({dll_file.name})"
                 })
             
-            # 2. 添加其他固定文件
-            other_files = [
-                {
-                    "pattern": "rr_fixes_100_p.pak",
-                    "target_dir": client_pak_dir,
-                    "description": "PAK文件"
-                },
-                {
-                    "pattern": "launcher.exe",
-                    "target_dir": client_bin_dir,
-                    "description": "启动器"
-                },
-                {
-                    "pattern": "config.toml",
-                    "target_dir": client_bin_dir,
-                    "description": "配置文件"
-                }
+            # 2. 使用PathResolver获取文件映射
+            file_mappings = [
+                (WuWaConfig.PATHS["pak_file"], client_content_dir, "PAK文件"),
+                (WuWaConfig.PATHS["launcher_exe"], client_bin_dir, "启动器"),
+                (WuWaConfig.PATHS["config_file"], client_bin_dir, "配置文件")
             ]
             
-            # 添加其他文件到复制列表
-            for file_info in other_files:
-                source_file = source_dir / file_info["pattern"]
+            for filename, target_dir, description in file_mappings:
+                source_file = source_dir / filename
                 if source_file.exists():
                     files_to_copy.append({
                         "source_file": source_file,
-                        "target_dir": file_info["target_dir"],
-                        "description": file_info["description"]
+                        "target_dir": target_dir,
+                        "description": description
                     })
             
-            copied_count = 0
-            for file_info in files_to_copy:
-                source_file = file_info["source_file"]
-                target_dir = file_info["target_dir"]
-                description = file_info["description"]
-                
-                target_file = target_dir / source_file.name
-                try:
-                    shutil.copy2(source_file, target_file)
-                    self.log_message(f"[成功] 复制{description}: {source_file.name}")
-                    copied_count += 1
-                except Exception as e:
-                    self.log_message(f"[错误] 复制{description}失败: {e}", "ERROR")
+            return files_to_copy
             
-            if copied_count > 0:
-                self.log_message(f"客户端补丁应用完成，共复制 {copied_count} 个文件")
-                return True
-            else:
-                self.log_message("没有文件被复制", "WARNING")
-                return False
-                
         except Exception as e:
-            self.log_message(f"应用客户端补丁失败: {e}", "ERROR")
-            return False
+            raise WuWaFileException(f"获取文件列表失败: {str(e)}")
+    
+    def _copy_files(self, files_to_copy: list) -> int:
+        """执行文件复制操作"""
+        copied_count = 0
+        
+        for file_info in files_to_copy:
+            source_file = file_info["source_file"]
+            target_dir = file_info["target_dir"]
+            description = file_info["description"]
+            
+            try:
+                target_file = target_dir / source_file.name
+                
+                # 使用安全的文件操作
+                self.safe_file_operation(shutil.copy2, source_file, target_file)
+                
+                self.log_message(f"[成功] 复制{description}: {source_file.name}")
+                copied_count += 1
+                
+            except Exception as e:
+                detailed_exception = self.error_handler.handle_exception(
+                    e, f"复制文件 {source_file.name}",
+                    context={
+                        "source_file": str(source_file),
+                        "target_file": str(target_dir / source_file.name),
+                        "description": description
+                    },
+                    suggestions=[
+                        "检查源文件是否存在",
+                        "验证目标目录权限",
+                        "确保文件未被占用"
+                    ]
+                )
+                self.log_message(f"[错误] 复制{description}失败: {detailed_exception.message}", "ERROR")
+        
+        return copied_count
 
 
 class WuWaServerEnvironmentChecker(BaseWuWaComponent):
@@ -856,9 +1194,9 @@ class WuWaClientEnvironmentChecker(BaseWuWaComponent):
         self.log_message("=== 检查客户端必需文件 ===")
         
         script_dir = Path(__file__).parent.absolute()
-        client_path = self._find_client_directory(script_dir)
+        client_bin_path = self._find_client_directory(script_dir)
         
-        if not client_path:
+        if not client_bin_path:
             self.log_message("[错误] 客户端目录不存在，无法检查文件", "ERROR")
             if version:
                 self.log_message(f"[提示] 请执行命令修补客户端: python wuwa_server.py --patchclient --version {version}", "INFO")
@@ -866,23 +1204,28 @@ class WuWaClientEnvironmentChecker(BaseWuWaComponent):
                 self.log_message("[提示] 请执行命令修补客户端: python wuwa_server.py --patchclient --version <版本号>", "INFO")
             return False
         
-        # 检查必需文件列表
+        # client_bin_path 已经是 Client/Client/Binaries/Win64 路径
+        # 需要获取 Client/Client 根目录来构建其他路径
+        client_root_path = client_bin_path.parent.parent  # 从 Win64 -> Binaries -> Client
+        client_content_path = client_root_path / "Content" / "Paks"
+        
+        # 检查必需文件列表，根据文件类型指定不同的检查路径
         required_files = [
-            ("rr_fixes_100_p.pak", "补丁文件"),
-            ("launcher.exe", "启动器"),
-            ("config.toml", "配置文件")
+            ("rr_fixes_100_p.pak", "补丁文件", client_content_path),
+            ("launcher.exe", "启动器", client_bin_path),
+            ("config.toml", "配置文件", client_bin_path)
         ]
         
         missing_files = []
         found_files = []
         
-        for filename, description in required_files:
-            file_path = client_path / filename
+        for filename, description, check_path in required_files:
+            file_path = check_path / filename
             if file_path.exists():
-                self.log_message(f"[成功] {description}: {filename}")
+                self.log_message(f"[成功] {description}: {filename} (位于: {check_path.name})")
                 found_files.append(filename)
             else:
-                self.log_message(f"[错误] {description}缺失: {filename}", "ERROR")
+                self.log_message(f"[错误] {description}缺失: {filename} (应位于: {check_path})", "ERROR")
                 missing_files.append(filename)
         
         if missing_files:
@@ -961,6 +1304,12 @@ class WuWaClientEnvironmentChecker(BaseWuWaComponent):
             base_path.parent / client_binary_path,
             base_path.parent.parent / client_binary_path
         ]
+        
+        # 特别处理：如果脚本在Server目录，则检查同级的Client目录
+        if base_path.name.lower() == "server":
+            # 检查同级目录中的Client目录
+            sibling_client_path = base_path.parent / client_binary_path
+            possible_paths.insert(0, sibling_client_path)  # 优先检查同级Client目录
         
         # 也搜索当前目录的所有子目录
         try:
