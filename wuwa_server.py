@@ -1,35 +1,26 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-鸣潮服务端一键运行工具 - 合并版本
-整合了原有的所有功能模块：环境检查、服务端运行、状态监控、日志管理、调试运行等
+鸣潮服务端一键运行工具
 """
 
 import os
 import re
 import sys
 import time
-import gzip
-import json
 import shutil
 import psutil
 import socket
 import subprocess
+
 import logging
-import logging.handlers
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Thread, Event
-from collections import defaultdict, Counter
 
-
-# ==================== 配置管理模块 ====================
 class WuWaConfig:
     """统一配置管理类 - 消除硬编码"""
     
-    # 服务器配置
     SERVERS = [
         {
             "name": "wicked-waifus-config-server",
@@ -63,7 +54,6 @@ class WuWaConfig:
         }
     ]
     
-    # 路径配置
     PATHS = {
         "client_binary": "Client/Client/Binaries/Win64",
         "client_content": "Client/Client/Content/Paks",
@@ -71,24 +61,18 @@ class WuWaConfig:
         "launcher_exe": "launcher.exe",
         "pak_file": "rr_fixes_100_p.pak",
         "config_file": "config.toml",
-        "logs_dir": "logs",
+
         "release_dir": "release"
     }
     
-    # 文件类型到目标目录的映射配置
     FILE_TARGET_MAPPING = {
-        # .pak文件复制到Content/Paks目录
         "pak": "client_content",
-        # .dll和.exe文件复制到Binaries/Win64目录
         "dll": "client_binary",
         "exe": "client_binary",
-        # 配置文件复制到Binaries/Win64目录
         "toml": "client_binary",
-        # 默认目录
         "default": "client_binary"
     }
     
-    # 文件扩展名
     FILE_EXTENSIONS = {
         "dll": "*.dll",
         "exe": "*.exe",
@@ -96,52 +80,39 @@ class WuWaConfig:
         "toml": "*.toml"
     }
     
-    # 超时和重试配置
-    TIMEOUTS = {
-        "server_start": 30,
-        "server_stop": 10,
-        "process_check": 5,
-        "file_operation": 10
-    }
-    
-    # 日志配置
     LOG_CONFIG = {
         "format": "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s",
         "date_format": "%Y-%m-%d %H:%M:%S",
         "level": logging.INFO,
-        "max_bytes": 10 * 1024 * 1024,  # 10MB
-        "backup_count": 5
+        "enable_file_logging": False,  # 是否启用文件日志记录
+        "log_file_path": "logs/wuwa_server.log",  # 日志文件路径
+        "max_file_size": 10 * 1024 * 1024,  # 单个日志文件最大大小（10MB）
+        "backup_count": 5,  # 保留的日志文件备份数量
+        "enable_console_logging": True,  # 是否启用控制台日志输出
+        "log_levels": {  # 不同组件的日志级别配置
+            "server": logging.INFO,
+            "client": logging.INFO,
+            "network": logging.WARNING,
+            "file_ops": logging.INFO,
+            "performance": logging.WARNING
+        }
     }
     
-    # 性能优化配置
     PERFORMANCE = {
         "max_concurrent_servers": 5,  # 最大并发启动服务端数量
-        "startup_delay": 0,  # 服务端启动间隔（秒）- 已禁用延迟
         "cache_enabled": True,  # 启用缓存机制
         "cache_ttl": 300,  # 缓存生存时间（秒）
         "thread_pool_size": 4  # 线程池大小
     }
-    
-    # 日志文件配置
-    LOG_FILES = {
-        "config": "config-server.log",
-        "hotpatch": "hotpatch-server.log", 
-        "login": "login-server.log",
-        "gateway": "gateway-server.log",
-        "game": "game-server.log"
-    }
-
 
 class PathResolver:
     """路径解析器 - 统一管理和解析所有路径配置"""
     
     def __init__(self, project_root: Path):
         self.project_root = project_root
-        # 修正路径配置 - project_root已经是Server目录
-        self.server_dir = project_root  # 不需要再添加"Server"
+        self.server_dir = project_root
         self.client_dir = project_root.parent / "Client"  # 上级目录的Client
         
-        # 缓存解析结果
         self._path_cache = {}
         
     def get_client_binary_path(self) -> Path:
@@ -169,33 +140,22 @@ class PathResolver:
         """获取指定版本的路径"""
         return self.get_server_release_path(version)
     
-    def get_logs_path(self) -> Path:
-        """获取日志目录路径"""
-        cache_key = "logs"
-        if cache_key not in self._path_cache:
-            self._path_cache[cache_key] = self.project_root / "logs"
-        return self._path_cache[cache_key]
-    
     def resolve_file_target_path(self, filename: str) -> Path:
         """根据文件名解析目标路径"""
         file_mappings = WuWaConfig.FILE_TARGET_MAPPING
         
-        # 检查文件扩展名
         file_ext = Path(filename).suffix.lower()
         if file_ext in file_mappings:
             target_type = file_mappings[file_ext]
         else:
-            # 检查特定文件名
             if filename in file_mappings:
                 target_type = file_mappings[filename]
             else:
-                # 默认到二进制目录
                 target_type = "binary"
         
-        # 根据目标类型返回路径
         if target_type == "content":
             return self.get_client_content_path()
-        else:  # binary
+        else:
             return self.get_client_binary_path()
     
     def validate_path(self, path: Path, create_if_missing: bool = False) -> bool:
@@ -223,9 +183,6 @@ class PathResolver:
         """清空路径缓存"""
         self._path_cache.clear()
 
-
-# ==================== 异常类定义 ====================
-
 class WuWaException(Exception):
     """鸣潮工具基础异常类"""
     def __init__(self, message: str, error_code: int = 1000):
@@ -236,60 +193,50 @@ class WuWaException(Exception):
     def __str__(self):
         return f"[错误码:{self.error_code}] {self.message}"
 
-
 class WuWaConfigException(WuWaException):
     """配置相关异常"""
     def __init__(self, message: str):
         super().__init__(message, 1001)
-
 
 class WuWaFileException(WuWaException):
     """文件操作异常"""
     def __init__(self, message: str):
         super().__init__(message, 1002)
 
-
 class WuWaProcessException(WuWaException):
     """进程操作异常"""
     def __init__(self, message: str):
         super().__init__(message, 1003)
-
 
 class WuWaNetworkException(WuWaException):
     """网络相关异常"""
     def __init__(self, message: str):
         super().__init__(message, 1004)
 
-
 class WuWaServerException(WuWaException):
     """服务器相关异常"""
     def __init__(self, message: str):
         super().__init__(message, 1005)
-
 
 class WuWaEnvironmentException(WuWaException):
     """环境检查异常"""
     def __init__(self, message: str):
         super().__init__(message, 1006)
 
-
 class WuWaVersionException(WuWaException):
     """版本管理异常"""
     def __init__(self, message: str):
         super().__init__(message, 1007)
-
 
 class WuWaClientException(WuWaException):
     """客户端相关异常"""
     def __init__(self, message: str):
         super().__init__(message, 1008)
 
-
 class WuWaPathException(WuWaException):
     """路径相关异常"""
     def __init__(self, message: str):
         super().__init__(message, 1009)
-
 
 class DetailedWuWaException(WuWaException):
     """增强的异常类 - 提供详细的错误信息和上下文"""
@@ -332,7 +279,6 @@ class DetailedWuWaException(WuWaException):
             "recoverable": self.recoverable
         }
 
-
 class ErrorHandler:
     """错误处理器 - 统一管理错误处理逻辑"""
     
@@ -345,13 +291,11 @@ class ErrorHandler:
                         context: dict = None, suggestions: list = None) -> DetailedWuWaException:
         """处理异常并转换为详细异常"""
         
-        # 如果已经是DetailedWuWaException，直接返回
         if isinstance(exception, DetailedWuWaException):
             self._log_exception(exception, operation)
             self._add_to_history(exception)
             return exception
         
-        # 如果是WuWaException，转换为DetailedWuWaException
         if isinstance(exception, WuWaException):
             detailed_exception = DetailedWuWaException(
                 message=exception.message,
@@ -361,10 +305,9 @@ class ErrorHandler:
                 recoverable=self._is_recoverable(exception)
             )
         else:
-            # 其他异常类型
             detailed_exception = DetailedWuWaException(
                 message=str(exception),
-                error_code=9999,  # 未知错误
+                error_code=9999,
                 context=context or {"operation": operation, "exception_type": type(exception).__name__},
                 suggestions=suggestions or ["检查系统环境", "查看详细日志", "联系技术支持"],
                 recoverable=False
@@ -469,102 +412,195 @@ class ErrorHandler:
         """清空错误历史"""
         self.error_history.clear()
 
-
-# 错误码常量
 class ErrorCodes:
     """错误码定义"""
-    # 通用错误 1000-1099
     UNKNOWN_ERROR = 1000
     
-    # 配置错误 1100-1199
     CONFIG_FILE_NOT_FOUND = 1101
     CONFIG_PARSE_ERROR = 1102
     CONFIG_VALIDATION_ERROR = 1103
     
-    # 文件错误 1200-1299
     FILE_NOT_FOUND = 1201
     FILE_PERMISSION_ERROR = 1202
     FILE_IO_ERROR = 1203
     DIRECTORY_NOT_FOUND = 1204
     
-    # 进程错误 1300-1399
     PROCESS_START_ERROR = 1301
     PROCESS_STOP_ERROR = 1302
     PROCESS_NOT_FOUND = 1303
     PROCESS_ACCESS_DENIED = 1304
     
-    # 网络错误 1400-1499
     PORT_IN_USE = 1401
     PORT_NOT_ACCESSIBLE = 1402
     NETWORK_CONNECTION_ERROR = 1403
     
-    # 服务器错误 1500-1599
     SERVER_START_ERROR = 1501
     SERVER_STOP_ERROR = 1502
     SERVER_CONFIG_ERROR = 1503
     
-    # 环境错误 1600-1699
     OS_NOT_SUPPORTED = 1601
     DEPENDENCY_MISSING = 1602
     ENVIRONMENT_SETUP_ERROR = 1603
     
-    # 版本错误 1700-1799
     VERSION_NOT_FOUND = 1701
     VERSION_INVALID = 1702
     VERSION_CONFLICT = 1703
     
-    # 客户端错误 1800-1899
     CLIENT_NOT_FOUND = 1801
     CLIENT_PATCH_ERROR = 1802
     CLIENT_VERSION_MISMATCH = 1803
 
+class WuWaLogger:
+    """鸣潮工具日志管理器 - 提供灵活的日志记录功能"""
+    
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls):
+        """单例模式"""
+        if cls._instance is None:
+            cls._instance = super(WuWaLogger, cls).__new__(cls)
+        return cls._instance
+    
+    def __init__(self):
+        """初始化日志管理器"""
+        if self._initialized:
+            return
+        
+        self.config = WuWaConfig.LOG_CONFIG
+        self.loggers = {}
+        self.handlers = {}
+        self._setup_root_logger()
+        self._initialized = True
+    
+    def _setup_root_logger(self):
+        """设置根日志器"""
+        root_logger = logging.getLogger("WuWa")
+        root_logger.setLevel(self.config["level"])
+        
+        root_logger.handlers.clear()
+        
+        if self.config.get("enable_console_logging", True):
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(self._get_formatter())
+            console_handler.setLevel(self.config["level"])
+            root_logger.addHandler(console_handler)
+            self.handlers["console"] = console_handler
+        
+        if self.config.get("enable_file_logging", False):
+            self._setup_file_handler(root_logger)
+    
+    def _setup_file_handler(self, logger):
+        """设置文件日志处理器"""
+        try:
+            from logging.handlers import RotatingFileHandler
+            import os
+            
+            log_file_path = self.config["log_file_path"]
+            log_dir = os.path.dirname(log_file_path)
+            
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+            
+            file_handler = RotatingFileHandler(
+                log_file_path,
+                maxBytes=self.config.get("max_file_size", 10 * 1024 * 1024),
+                backupCount=self.config.get("backup_count", 5),
+                encoding='utf-8'
+            )
+            
+            file_handler.setFormatter(self._get_formatter())
+            file_handler.setLevel(self.config["level"])
+            logger.addHandler(file_handler)
+            self.handlers["file"] = file_handler
+            
+        except Exception as e:
+            console_logger = logging.getLogger("WuWa.Logger")
+            console_logger.warning(f"文件日志设置失败: {e}")
+    
+    def _get_formatter(self):
+        """获取日志格式器"""
+        return logging.Formatter(
+            self.config["format"],
+            self.config["date_format"]
+        )
+    
+    def get_logger(self, component_name: str):
+        """获取指定组件的日志器"""
+        logger_name = f"WuWa.{component_name}"
+        
+        if logger_name not in self.loggers:
+            logger = logging.getLogger(logger_name)
+            
+            component_level = self.config.get("log_levels", {}).get(
+                component_name.lower(), 
+                self.config["level"]
+            )
+            logger.setLevel(component_level)
+            
+            self.loggers[logger_name] = logger
+        
+        return self.loggers[logger_name]
+    
+    def enable_file_logging(self, log_file_path: str = None):
+        """动态启用文件日志记录"""
+        if log_file_path:
+            self.config["log_file_path"] = log_file_path
+        
+        self.config["enable_file_logging"] = True
+        
+        root_logger = logging.getLogger("WuWa")
+        if "file" not in self.handlers:
+            self._setup_file_handler(root_logger)
+    
+    def disable_file_logging(self):
+        """动态禁用文件日志记录"""
+        self.config["enable_file_logging"] = False
+        
+        if "file" in self.handlers:
+            root_logger = logging.getLogger("WuWa")
+            root_logger.removeHandler(self.handlers["file"])
+            self.handlers["file"].close()
+            del self.handlers["file"]
+    
+    def set_log_level(self, component_name: str, level):
+        """设置指定组件的日志级别"""
+        self.config["log_levels"][component_name.lower()] = level
+        
+        logger_name = f"WuWa.{component_name}"
+        if logger_name in self.loggers:
+            self.loggers[logger_name].setLevel(level)
+    
+    def get_log_status(self):
+        """获取日志系统状态"""
+        return {
+            "file_logging_enabled": self.config.get("enable_file_logging", False),
+            "console_logging_enabled": self.config.get("enable_console_logging", True),
+            "log_file_path": self.config.get("log_file_path", ""),
+            "active_loggers": list(self.loggers.keys()),
+            "log_levels": self.config.get("log_levels", {}),
+            "handlers": list(self.handlers.keys())
+        }
 
-# ==================== 公共基类 ====================
 class BaseWuWaComponent:
     """鸣潮工具组件基类 - 提供公共功能"""
     
     def __init__(self, project_root: Path, component_name: str):
         self.project_root = project_root
         self.component_name = component_name
-        self.logs_dir = project_root / WuWaConfig.PATHS["logs_dir"]
-        self.logs_dir.mkdir(exist_ok=True)
         
-        # 初始化缓存系统
         self._cache = {}
         self._cache_timestamps = {}
         
-        # 初始化日志系统
         self._setup_logger()
         
     def _setup_logger(self) -> None:
-        """设置组件专用日志器"""
-        self.logger = logging.getLogger(f"WuWa.{self.component_name}")
+        """设置组件专用日志器 - 使用WuWaLogger管理器"""
+        logger_manager = WuWaLogger()
         
-        # 避免重复添加处理器
-        if not self.logger.handlers:
-            # 文件处理器
-            log_file = self.logs_dir / f"{self.component_name.lower()}.log"
-            file_handler = logging.handlers.RotatingFileHandler(
-                log_file,
-                maxBytes=WuWaConfig.LOG_CONFIG["max_bytes"],
-                backupCount=WuWaConfig.LOG_CONFIG["backup_count"],
-                encoding="utf-8"
-            )
-            file_handler.setFormatter(logging.Formatter(
-                WuWaConfig.LOG_CONFIG["format"],
-                WuWaConfig.LOG_CONFIG["date_format"]
-            ))
-            
-            # 控制台处理器
-            console_handler = logging.StreamHandler()
-            console_handler.setFormatter(logging.Formatter(
-                WuWaConfig.LOG_CONFIG["format"],
-                WuWaConfig.LOG_CONFIG["date_format"]
-            ))
-            
-            self.logger.addHandler(file_handler)
-            self.logger.addHandler(console_handler)
-            self.logger.setLevel(WuWaConfig.LOG_CONFIG["level"])
+        self.logger = logger_manager.get_logger(self.component_name)
+        
+        self.logger_manager = logger_manager
     
     def log_message(self, message: str, log_type: str = "INFO") -> None:
         """统一的日志记录方法"""
@@ -579,12 +615,29 @@ class BaseWuWaComponent:
         level = level_map.get(log_type.upper(), logging.INFO)
         self.logger.log(level, message)
     
+    def enable_file_logging(self, log_file_path: str = None) -> None:
+        """启用文件日志记录"""
+        if hasattr(self, 'logger_manager'):
+            self.logger_manager.enable_file_logging(log_file_path)
+            self.log_message(f"已启用文件日志记录: {log_file_path or 'wuwa.log'}", "INFO")
+    
+    def disable_file_logging(self) -> None:
+        """禁用文件日志记录"""
+        if hasattr(self, 'logger_manager'):
+            self.logger_manager.disable_file_logging()
+            self.log_message("已禁用文件日志记录", "INFO")
+    
+    def set_log_level(self, level: str) -> None:
+        """设置日志级别"""
+        if hasattr(self, 'logger_manager'):
+            self.logger_manager.set_log_level(self.component_name, level)
+            self.log_message(f"日志级别已设置为: {level}", "INFO")
+    
     def handle_exception(self, e: Exception, context: str = "") -> None:
         """统一的异常处理方法"""
         if isinstance(e, WuWaException):
             self.log_message(f"{context}: {e.message} (错误码: {e.error_code})", "ERROR")
         else:
-            # 将通用异常转换为具体的WuWa异常
             if isinstance(e, FileNotFoundError):
                 wuwa_e = WuWaFileException(f"文件未找到: {str(e)}")
                 wuwa_e.error_code = ErrorCodes.FILE_NOT_FOUND
@@ -611,14 +664,13 @@ class BaseWuWaComponent:
         try:
             if must_exist and not path.exists():
                 raise WuWaFileException(f"路径不存在: {path}")
-                # 设置具体错误码
                 if path.is_file():
                     raise WuWaFileException(f"文件不存在: {path}")
                 else:
                     raise WuWaFileException(f"目录不存在: {path}")
             return True
         except WuWaException:
-            raise  # 重新抛出WuWa异常
+            raise
         except Exception as e:
             self.handle_exception(e, "路径验证失败")
             return False
@@ -653,7 +705,6 @@ class BaseWuWaComponent:
         if key not in self._cache:
             return None
             
-        # 检查缓存是否过期
         timestamp = self._cache_timestamps.get(key, 0)
         if time.time() - timestamp > WuWaConfig.PERFORMANCE["cache_ttl"]:
             self.clear_cache_key(key)
@@ -680,7 +731,6 @@ class BaseWuWaComponent:
         self._cache_timestamps.clear()
         self.log_message("已清除所有缓存数据")
 
-
 class WuWaConfigManager(BaseWuWaComponent):
     """配置管理类 - 处理动态路径检测和配置文件生成"""
     
@@ -701,24 +751,19 @@ class WuWaConfigManager(BaseWuWaComponent):
         """查找客户端目录，通过'Client\\Client\\Binaries\\Win64'标识"""
         self.log_message(f"在 {base_path} 中搜索客户端目录...")
         
-        # 使用配置类中的路径
         client_binary_path = WuWaConfig.PATHS["client_binary"]
         
-        # 搜索可能的客户端路径
         possible_paths = [
             base_path / client_binary_path,
             base_path.parent / client_binary_path,
             base_path.parent.parent / client_binary_path
         ]
         
-        # 特别处理：如果脚本在Server目录，则检查同级的Client目录
         if base_path.name.lower() == "server":
-            # 检查同级目录中的Client目录
             sibling_client_path = base_path.parent / client_binary_path
-            possible_paths.insert(0, sibling_client_path)  # 优先检查同级Client目录
+            possible_paths.insert(0, sibling_client_path)
             self.log_message(f"检测到Server目录，优先搜索同级Client目录: {sibling_client_path}")
         
-        # 也搜索当前目录的所有子目录
         try:
             for item in base_path.rglob("*"):
                 if item.is_dir() and item.name == "Win64":
@@ -754,33 +799,26 @@ class WuWaConfigManager(BaseWuWaComponent):
     def update_config_paths(self, config_path: Path, client_path: Path, dll_files: List[str]) -> bool:
         """更新配置文件中的路径，使用新的TOML格式规范"""
         try:
-            # 备份原配置文件
             backup_path = config_path.with_suffix('.toml.backup')
             if config_path.exists():
                 shutil.copy2(config_path, backup_path)
                 self.log_message(f"已备份配置文件到: {backup_path}")
             
-            # 获取项目根目录路径（不包括盘符）
             script_dir = self.get_script_directory()
-            project_root = script_dir.parent  # Server的父目录
+            project_root = script_dir.parent
             
-            # 构建标准化路径
             drive_letter = str(project_root).split(':')[0]  # 获取盘符
             path_without_drive = str(project_root).replace(f'{drive_letter}:', '').replace('\\', '/')
             
-            # 构建标准化的客户端路径
             client_bin_path = f"{drive_letter}:{path_without_drive}/Client/Client/Binaries/Win64"
             
-            # 构建DLL文件路径列表
             dll_list = []
             if dll_files:
                 for dll_file in dll_files:
-                    # 提取DLL文件名
                     dll_name = Path(dll_file).name
                     dll_path = f"{client_bin_path}/{dll_name}"
                     dll_list.append(dll_path)
             
-            # 写入新的配置文件（完全覆盖）
             with open(config_path, 'w', encoding='utf-8') as f:
                 f.write("[launcher]\n")
                 f.write("executable_file = 'Client-Win64-Shipping.exe'\n")
@@ -821,14 +859,12 @@ class WuWaConfigManager(BaseWuWaComponent):
         updated_count = 0
         
         if version:
-            # 处理指定版本
             version_dir = release_dir / version
             config_path = version_dir / "config.toml"
             if config_path.exists():
                 if self.update_config_paths(config_path, client_path, dll_files):
                     updated_count += 1
         else:
-            # 处理所有版本
             for version_dir in release_dir.iterdir():
                 if version_dir.is_dir():
                     config_path = version_dir / "config.toml"
@@ -836,7 +872,6 @@ class WuWaConfigManager(BaseWuWaComponent):
                         if self.update_config_paths(config_path, client_path, dll_files):
                             updated_count += 1
             
-            # 也处理根目录的config.toml
             root_config = release_dir / "config.toml"
             if root_config.exists():
                 if self.update_config_paths(root_config, client_path, dll_files):
@@ -845,13 +880,11 @@ class WuWaConfigManager(BaseWuWaComponent):
         self.log_message(f"共更新了 {updated_count} 个配置文件")
         return updated_count > 0
 
-
 class WuWaClientPatcher(BaseWuWaComponent):
     """客户端补丁管理类 - 处理客户端文件复制和补丁应用"""
     
     def __init__(self, project_root: Path):
         super().__init__(project_root, "ClientPatcher")
-        # 集成PathResolver和ErrorHandler
         self.path_resolver = PathResolver(project_root)
         self.error_handler = ErrorHandler(self.logger)
     def get_script_directory(self) -> Path:
@@ -865,26 +898,21 @@ class WuWaClientPatcher(BaseWuWaComponent):
         try:
             self.log_message(f"开始{operation}")
             
-            # 使用PathResolver获取路径
             source_dir = self.path_resolver.get_version_path(version)
             client_bin_dir = self.path_resolver.get_client_binary_path()
             client_content_dir = self.path_resolver.get_client_content_path()
             
-            # 验证源目录存在
             if not source_dir.exists():
                 raise WuWaPathException(f"版本目录不存在: {source_dir}")
             
-            # 确保目标目录存在
             client_bin_dir.mkdir(parents=True, exist_ok=True)
             client_content_dir.mkdir(parents=True, exist_ok=True)
             
-            # 获取需要复制的文件列表
             files_to_copy = self._get_files_to_copy(source_dir, client_bin_dir, client_content_dir)
             
             if not files_to_copy:
                 raise WuWaFileException("没有找到需要复制的文件")
             
-            # 执行文件复制
             copied_count = self._copy_files(files_to_copy)
             
             if copied_count > 0:
@@ -916,7 +944,6 @@ class WuWaClientPatcher(BaseWuWaComponent):
         files_to_copy = []
         
         try:
-            # 1. 自动查找所有.dll文件
             dll_files = list(source_dir.glob("*.dll"))
             for dll_file in dll_files:
                 files_to_copy.append({
@@ -925,7 +952,6 @@ class WuWaClientPatcher(BaseWuWaComponent):
                     "description": f"DLL文件 ({dll_file.name})"
                 })
             
-            # 2. 使用PathResolver获取文件映射
             file_mappings = [
                 (WuWaConfig.PATHS["pak_file"], client_content_dir, "PAK文件"),
                 (WuWaConfig.PATHS["launcher_exe"], client_bin_dir, "启动器"),
@@ -958,7 +984,6 @@ class WuWaClientPatcher(BaseWuWaComponent):
             try:
                 target_file = target_dir / source_file.name
                 
-                # 使用安全的文件操作
                 self.safe_file_operation(shutil.copy2, source_file, target_file)
                 
                 self.log_message(f"[成功] 复制{description}: {source_file.name}")
@@ -981,7 +1006,6 @@ class WuWaClientPatcher(BaseWuWaComponent):
                 self.log_message(f"[错误] 复制{description}失败: {detailed_exception.message}", "ERROR")
         
         return copied_count
-
 
 class WuWaServerEnvironmentChecker(BaseWuWaComponent):
     """服务端环境检查类 - 专门检查服务端运行环境"""
@@ -1031,7 +1055,6 @@ class WuWaServerEnvironmentChecker(BaseWuWaComponent):
         
         release_dir = self.project_root / "release"
         
-        # 如果指定了版本，使用指定版本目录
         if version:
             version_dir = release_dir / version
             if version_dir.exists():
@@ -1041,16 +1064,13 @@ class WuWaServerEnvironmentChecker(BaseWuWaComponent):
                 self.log_message(f"[错误] 指定版本目录不存在: {version_dir}", "ERROR")
                 return False
         else:
-            # 如果没有指定版本，尝试自动选择最新版本
             if release_dir.exists():
                 version_dirs = [d for d in release_dir.iterdir() if d.is_dir() and d.name.replace('.', '').isdigit()]
                 if version_dirs:
-                    # 按版本号排序，选择最新版本
                     latest_version = max(version_dirs, key=lambda x: tuple(map(int, x.name.split('.'))))
                     release_dir = latest_version
                     self.log_message(f"[信息] 自动选择最新版本目录: {release_dir}")
                 else:
-                    # 如果没有版本子目录，使用release根目录
                     self.log_message(f"[信息] 使用release根目录: {release_dir}")
         
         if not release_dir.exists():
@@ -1088,7 +1108,6 @@ class WuWaServerEnvironmentChecker(BaseWuWaComponent):
         required_ports = [10001, 10002, 5500, 10003, 10004]
         occupied_ports = []
         
-        # 使用并发检查所有端口，提高检查速度
         import concurrent.futures
         
         def check_single_port(port):
@@ -1101,7 +1120,6 @@ class WuWaServerEnvironmentChecker(BaseWuWaComponent):
                 self.log_message(f"[成功] 端口 {port} 可用")
                 return port, False
         
-        # 并发检查所有端口
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_port = {executor.submit(check_single_port, port): port for port in required_ports}
             
@@ -1121,7 +1139,7 @@ class WuWaServerEnvironmentChecker(BaseWuWaComponent):
         """检查端口是否被占用"""
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(0.1)  # 100ms超时
+                s.settimeout(0.1)
                 result = s.connect_ex(('127.0.0.1', port))
                 return result == 0
         except Exception:
@@ -1146,7 +1164,6 @@ class WuWaServerEnvironmentChecker(BaseWuWaComponent):
                 self.log_message(f"[错误] {check_name}检查失败: {e}", "ERROR")
                 results[check_name] = False
         
-        # 输出检查结果摘要
         self.log_message("=== 服务端环境检查结果摘要 ===")
         passed_count = sum(results.values())
         total_count = len(results)
@@ -1157,7 +1174,6 @@ class WuWaServerEnvironmentChecker(BaseWuWaComponent):
         
         self.log_message(f"服务端检查完成: {passed_count}/{total_count} 项通过")
         
-        # 关键检查项
         critical_checks = ["操作系统", "Python版本", "服务端可执行文件"]
         critical_passed = all(results.get(check, False) for check in critical_checks)
         
@@ -1167,7 +1183,6 @@ class WuWaServerEnvironmentChecker(BaseWuWaComponent):
         else:
             self.log_message("[错误] 服务端关键环境检查失败，请修复后重试", "ERROR")
             return False
-
 
 class WuWaClientEnvironmentChecker(BaseWuWaComponent):
     """客户端环境检查类 - 专门检查客户端运行环境"""
@@ -1204,12 +1219,9 @@ class WuWaClientEnvironmentChecker(BaseWuWaComponent):
                 self.log_message("[提示] 请执行命令修补客户端: python wuwa_server.py --patchclient --version <版本号>", "INFO")
             return False
         
-        # client_bin_path 已经是 Client/Client/Binaries/Win64 路径
-        # 需要获取 Client/Client 根目录来构建其他路径
-        client_root_path = client_bin_path.parent.parent  # 从 Win64 -> Binaries -> Client
+        client_root_path = client_bin_path.parent.parent
         client_content_path = client_root_path / "Content" / "Paks"
         
-        # 检查必需文件列表，根据文件类型指定不同的检查路径
         required_files = [
             ("rr_fixes_100_p.pak", "补丁文件", client_content_path),
             ("launcher.exe", "启动器", client_bin_path),
@@ -1295,23 +1307,18 @@ class WuWaClientEnvironmentChecker(BaseWuWaComponent):
     
     def _find_client_directory(self, base_path: Path) -> Optional[Path]:
         """查找客户端目录"""
-        # 使用配置类中的路径
         client_binary_path = WuWaConfig.PATHS["client_binary"]
         
-        # 搜索可能的客户端路径
         possible_paths = [
             base_path / client_binary_path,
             base_path.parent / client_binary_path,
             base_path.parent.parent / client_binary_path
         ]
         
-        # 特别处理：如果脚本在Server目录，则检查同级的Client目录
         if base_path.name.lower() == "server":
-            # 检查同级目录中的Client目录
             sibling_client_path = base_path.parent / client_binary_path
-            possible_paths.insert(0, sibling_client_path)  # 优先检查同级Client目录
+            possible_paths.insert(0, sibling_client_path)
         
-        # 也搜索当前目录的所有子目录
         try:
             for item in base_path.rglob("*"):
                 if item.is_dir() and item.name == "Win64":
@@ -1333,7 +1340,6 @@ class WuWaClientEnvironmentChecker(BaseWuWaComponent):
         """运行客户端环境检查"""
         self.log_message("开始客户端环境检查...")
         
-        # 直接调用检查方法，避免lambda函数重复调用
         directory_result = self.check_client_directory()
         files_result = self.check_client_files(version)
         
@@ -1342,7 +1348,6 @@ class WuWaClientEnvironmentChecker(BaseWuWaComponent):
             "客户端必需文件": files_result
         }
         
-        # 输出检查结果摘要
         self.log_message("=== 客户端环境检查结果摘要 ===")
         passed_count = sum(results.values())
         total_count = len(results)
@@ -1353,7 +1358,6 @@ class WuWaClientEnvironmentChecker(BaseWuWaComponent):
         
         self.log_message(f"客户端检查完成: {passed_count}/{total_count} 项通过")
         
-        # 关键检查项
         critical_checks = ["客户端目录", "客户端必需文件"]
         critical_passed = all(results.get(check, False) for check in critical_checks)
         
@@ -1363,7 +1367,6 @@ class WuWaClientEnvironmentChecker(BaseWuWaComponent):
         else:
             self.log_message("[错误] 客户端关键环境检查失败，请修复后重试", "ERROR")
             return False
-
 
 class WuWaEnvironmentChecker(BaseWuWaComponent):
     """环境检查类 - 统一管理服务端和客户端环境检查"""
@@ -1406,17 +1409,14 @@ class WuWaEnvironmentChecker(BaseWuWaComponent):
         """
         self.log_message("=== 开始完整环境检查 ===")
         
-        # 运行服务端检查
         server_result = self.run_server_checks(version)
         
-        # 运行客户端检查（可选）
         client_result = True
         if check_client:
             client_result = self.run_client_checks(version)
         else:
             self.log_message("[信息] 跳过客户端环境检查")
         
-        # 综合结果
         overall_result = server_result and client_result
         
         self.log_message("=== 环境检查总结 ===")
@@ -1431,7 +1431,6 @@ class WuWaEnvironmentChecker(BaseWuWaComponent):
         
         return overall_result
     
-    # 保持向后兼容性的方法
     def check_operating_system(self) -> bool:
         """检查操作系统（向后兼容）"""
         return self.server_checker.check_operating_system()
@@ -1452,7 +1451,6 @@ class WuWaEnvironmentChecker(BaseWuWaComponent):
         """检查端口可用性（向后兼容）"""
         return self.server_checker.check_port_availability()
 
-
 class WuWaRun(BaseWuWaComponent):
     """服务端运行类 - 负责启动和管理服务端进程"""
     
@@ -1461,25 +1459,24 @@ class WuWaRun(BaseWuWaComponent):
         self.release_dir = project_root / WuWaConfig.PATHS["release_dir"]
         self.selected_version = None
         
-        # 使用配置类中的服务器配置
+        self.logs_dir = project_root / "logs"
+        self.logs_dir.mkdir(exist_ok=True)
+        
         self.servers = WuWaConfig.SERVERS
     
     def set_release_version(self, version: str) -> None:
         """设置release版本目录"""
         try:
             if not version:
-                # 如果没有指定版本，尝试自动选择最新版本
                 base_release_dir = self.project_root / "release"
                 if base_release_dir.exists():
                     version_dirs = [d for d in base_release_dir.iterdir() if d.is_dir() and d.name.replace('.', '').isdigit()]
                     if version_dirs:
-                        # 按版本号排序，选择最新版本
                         latest_version = max(version_dirs, key=lambda x: tuple(map(int, x.name.split('.'))))
                         self.release_dir = latest_version
                         self.selected_version = latest_version.name
                         self.log_message(f"自动选择最新版本目录: {self.release_dir}")
                     else:
-                        # 如果没有版本子目录，使用release根目录
                         self.release_dir = base_release_dir
                         self.selected_version = None
                         self.log_message(f"使用release根目录: {self.release_dir}")
@@ -1538,7 +1535,6 @@ class WuWaRun(BaseWuWaComponent):
             self.log_message(f"[错误] Release目录不存在: {self.release_dir}", "ERROR")
             return []
         
-        # 检查缓存中是否有进程信息
         cache_key = "running_processes"
         cached_processes = self.get_cached_data(cache_key)
         if cached_processes:
@@ -1547,17 +1543,14 @@ class WuWaRun(BaseWuWaComponent):
         
         processes = []
         
-        # 使用线程池并发启动服务端
         max_workers = min(len(self.servers), WuWaConfig.PERFORMANCE["max_concurrent_servers"])
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # 提交所有启动任务
             future_to_server = {
                 executor.submit(self._start_server_with_delay, i): (i, server) 
                 for i, server in enumerate(self.servers)
             }
             
-            # 收集结果
             for future in as_completed(future_to_server):
                 server_index, server = future_to_server[future]
                 try:
@@ -1572,7 +1565,6 @@ class WuWaRun(BaseWuWaComponent):
         
         if processes:
             self.log_message(f"[成功] 并发启动完成，共启动 {len(processes)}/{len(self.servers)} 个服务端")
-            # 缓存进程信息
             self.set_cached_data(cache_key, processes)
         else:
             self.log_message("[错误] 没有成功启动任何服务端", "ERROR")
@@ -1581,8 +1573,7 @@ class WuWaRun(BaseWuWaComponent):
         return processes
     
     def _start_server_with_delay(self, server_index: int) -> Optional[subprocess.Popen]:
-        """启动服务端（原延迟功能已移除）"""
-        # 直接启动服务端，不再添加延迟
+        """启动服务端（已移除延迟功能）"""
         return self.start_server(server_index)
     
     def stop_all_servers(self) -> bool:
@@ -1609,7 +1600,6 @@ class WuWaRun(BaseWuWaComponent):
         """根据进程名查找进程"""
         processes = []
         try:
-            # 使用更高效的进程查找方式，减少延时
             for proc in psutil.process_iter(['pid', 'name']):
                 try:
                     if process_name.lower() in proc.info['name'].lower():
@@ -1625,16 +1615,12 @@ class WuWaRun(BaseWuWaComponent):
         try:
             self.log_message(f"停止进程: {server_name} (PID: {process.pid})")
             
-            # 发送终止信号
             process.terminate()
             
-            # 检查进程是否已经停止，不等待
             try:
                 if process.is_running():
-                    # 如果进程仍在运行，强制杀死
                     process.kill()
             except psutil.NoSuchProcess:
-                # 进程已经不存在，说明已经停止
                 pass
             
             self.log_message(f"[成功] {server_name} 已停止")
@@ -1647,14 +1633,12 @@ class WuWaRun(BaseWuWaComponent):
             self.log_message(f"停止 {server_name} 时发生未知错误: {e}", "ERROR")
             return False
 
-
 class WuWaStatus(BaseWuWaComponent):
     """状态监控类 - 监控服务端运行状态"""
     
     def __init__(self, project_root: Path):
         super().__init__(project_root, "StatusMonitor")
         
-        # 将服务器配置转换为字典格式以便查找
         self.servers = {
             server["name"].replace("wicked-waifus-", "").replace("-server", ""): {
                 "name": server["name"],
@@ -1802,7 +1786,6 @@ class WuWaStatus(BaseWuWaComponent):
     
     def show_status(self, detailed: bool = True) -> None:
         """显示服务端状态（带缓存优化）"""
-        # 检查缓存
         cache_key = f"server_status_{detailed}"
         cached_status = self.get_cached_data(cache_key)
         if cached_status:
@@ -1811,7 +1794,6 @@ class WuWaStatus(BaseWuWaComponent):
                 self.log_message(line, "INFO")
             return
         
-        # 收集状态信息
         status_lines = []
         
         status_lines.append("=" * 80)
@@ -1866,10 +1848,8 @@ class WuWaStatus(BaseWuWaComponent):
                     status_line = f"{description:15} | 端口 {port:4} | {status}"
                     status_lines.append(status_line)
         
-        # 添加总计信息
         status_lines.append(f"\n总计运行数量: {running_count}/{len(self.servers)}")
         
-        # 添加系统资源信息
         if detailed:
             status_lines.append("\n[系统资源]")
             status_lines.append("-" * 80)
@@ -1884,366 +1864,435 @@ class WuWaStatus(BaseWuWaComponent):
         
         status_lines.append("=" * 80)
         
-        # 缓存状态信息
         self.set_cached_data(cache_key, status_lines)
-        
-        # 输出状态信息
-        for line in status_lines:
-            self.log_message(line, "INFO")
-        
-        self.log_message("=" * 80, "INFO")
 
-
-class WuWaLogs(BaseWuWaComponent):
-    """日志管理类 - 管理和分析日志文件"""
+class ArgumentValidator:
+    """参数验证器 - 实现新的参数验证规则"""
     
-    def __init__(self, project_root: Path):
-        super().__init__(project_root, "LogsManager")
-        
-        # 使用配置类中的日志文件配置
-        self.log_files = WuWaConfig.LOG_FILES
-        
-        self.log_colors = {
-            "ERROR": "\033[91m",
-            "WARN": "\033[93m",
-            "WARNING": "\033[93m",
-            "INFO": "\033[92m",
-            "DEBUG": "\033[94m",
-            "RESET": "\033[0m"
+    BASE_PARAMS = ['run', 'patch', 'status', 'stop', 'check', 'ddsr']
+    
+    STACKABLE_PARAMS = {
+        'first_level': ['serveronly', 'clientonly', 'all'],  # 一次叠加且互斥
+        'second_level': ['version']  # 二次叠加
+    }
+    
+    STACKING_RULES = {
+        'run': {
+            'default': 'serveronly',
+            'allowed': ['serveronly', 'clientonly', 'all'],
+            'forbidden': []
+        },
+        'patch': {
+            'default': None,
+            'allowed': ['version'],
+            'forbidden': ['serveronly', 'clientonly', 'all'],
+            'required': ['version']
+        },
+        'status': {
+            'default': 'serveronly',
+            'allowed': ['serveronly', 'clientonly', 'all'],
+            'forbidden': ['version']
+        },
+        'stop': {
+            'default': 'serveronly',
+            'allowed': ['serveronly'],
+            'forbidden': ['clientonly', 'all', 'version']
+        },
+        'check': {
+            'default': 'all',
+            'allowed': ['serveronly', 'clientonly', 'all'],
+            'forbidden': ['version']
+        },
+        'ddsr': {
+            'default': None,
+            'allowed': ['version'],
+            'forbidden': ['serveronly', 'clientonly', 'all'],
+            'required': ['version']
         }
+    }
     
-    def get_log_files_info(self) -> Dict[str, Dict[str, Any]]:
-        """获取日志文件信息"""
-        files_info = {}
-        
-        for log_key, log_filename in self.log_files.items():
-            log_path = self.logs_dir / log_filename
-            
-            if log_path.exists():
-                stat = log_path.stat()
-                files_info[log_key] = {
-                    "filename": log_filename,
-                    "path": log_path,
-                    "size_bytes": stat.st_size,
-                    "size_mb": stat.st_size / 1024 / 1024,
-                    "modified_time": datetime.fromtimestamp(stat.st_mtime),
-                    "exists": True
-                }
-            else:
-                files_info[log_key] = {
-                    "filename": log_filename,
-                    "path": log_path,
-                    "size_bytes": 0,
-                    "size_mb": 0,
-                    "modified_time": None,
-                    "exists": False
-                }
-                
-        return files_info
+    def __init__(self):
+        self.error_handler = ErrorHandler()
     
-    def show_log_files_list(self) -> None:
-        """显示日志文件列表"""
-        self.log_message("=" * 80, "INFO")
-        self.log_message("                        鸣潮服务端日志文件", "INFO")
-        self.log_message("=" * 80, "INFO")
+    def validate_arguments(self, args: dict) -> dict:
+        """
+        验证参数组合的有效性
         
-        files_info = self.get_log_files_info()
-        
-        self.log_message(f"{'序号':<4} {'类型':<12} {'文件名':<25} {'大小':<10} {'最后修改时间':<20} {'状态':<8}", "INFO")
-        self.log_message("-" * 80, "INFO")
-        
-        for i, (log_key, info) in enumerate(files_info.items(), 1):
-            if info['exists']:
-                size_str = f"{info['size_mb']:.1f} MB"
-                mtime_str = info['modified_time'].strftime("%Y-%m-%d %H:%M:%S")
-                status = "存在"
-            else:
-                size_str = "0 MB"
-                mtime_str = "-"
-                status = "不存在"
-                
-            self.log_message(f"{i:<4} {log_key:<12} {info['filename']:<25} {size_str:<10} {mtime_str:<20} {status:<8}", "INFO")
+        Args:
+            args: 解析后的参数字典
             
-        self.log_message("=" * 80, "INFO")
-    
-    def read_log_file(self, log_key: str, lines: int = 50) -> None:
-        """读取日志文件"""
-        if log_key not in self.log_files:
-            self.log_message(f"错误: 未知的日志类型 '{log_key}'", "ERROR")
-            return
+        Returns:
+            dict: 验证并处理后的参数字典
             
-        log_path = self.logs_dir / self.log_files[log_key]
-        
-        if not log_path.exists():
-            self.log_message(f"日志文件不存在: {log_path}", "ERROR")
-            return
-        
-        self.log_message(f"[文件] 日志文件: {log_path.name}", "INFO")
-        self.log_message(f"[内容] 最后 {lines} 行内容:", "INFO")
-        self.log_message("-" * 80, "INFO")
-        
+        Raises:
+            WuWaException: 参数验证失败时抛出异常
+        """
         try:
-            with open(log_path, "r", encoding="utf-8") as f:
-                all_lines = f.readlines()
-                last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
-                
-                for line in last_lines:
-                    colored_line = self._colorize_log_line(line.rstrip())
-                    self.log_message(colored_line, "INFO")
-                    
-        except UnicodeDecodeError:
-            try:
-                with open(log_path, "r", encoding="gbk") as f:
-                    all_lines = f.readlines()
-                    last_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
-                    
-                    for line in last_lines:
-                        colored_line = self._colorize_log_line(line.rstrip())
-                        self.log_message(colored_line, "INFO")
-            except Exception as e:
-                self.log_message(f"无法读取文件 (编码错误): {e}", "ERROR")
-                
-        self.log_message("-" * 80, "INFO")
-    
-    def _colorize_log_line(self, line: str) -> str:
-        """为日志行添加颜色"""
-        for level, color in self.log_colors.items():
-            if level == "RESET":
-                continue
-                
-            if f"[{level}]" in line or f" {level} " in line:
-                return f"{color}{line}{self.log_colors['RESET']}"
-                
-        return line
-    
-    def clean_logs(self, days_to_keep: int = 7) -> None:
-        """清理日志文件"""
-        self.log_message(f"[清理] 清理日志文件 (保留最近 {days_to_keep} 天)", "INFO")
-        self.log_message("=" * 60, "INFO")
-        
-        cutoff_time = datetime.now() - timedelta(days=days_to_keep)
-        cleaned_files = []
-        
-        for log_key, log_filename in self.log_files.items():
-            log_path = self.logs_dir / log_filename
+            base_param = self._validate_base_params(args)
             
-            if log_path.exists():
-                stat = log_path.stat()
-                mtime = datetime.fromtimestamp(stat.st_mtime)
-                
-                if mtime < cutoff_time:
-                    log_path.unlink()
-                    cleaned_files.append(log_filename)
-        
-        if cleaned_files:
-            self.log_message(f"[成功] 已清理 {len(cleaned_files)} 个文件:", "INFO")
-            for filename in cleaned_files:
-                self.log_message(f"  - {filename}", "INFO")
-        else:
-            self.log_message("[信息] 没有需要清理的文件", "INFO")
+            self._check_duplicate_params(args)
             
-        self.log_message("=" * 60, "INFO")
+            validated_args = self._validate_stacking_params(base_param, args)
+            
+            validated_args = self._apply_default_stacking(base_param, validated_args)
+            
+            return validated_args
+            
+        except Exception as e:
+            if isinstance(e, WuWaException):
+                raise e
+            else:
+                raise WuWaException(f"参数验证过程中发生未知错误: {str(e)}")
+    
+    def _validate_base_params(self, args: dict) -> str:
+        """验证基础参数（必须且仅选一个）"""
+        found_base_params = []
+        
+        for param in self.BASE_PARAMS:
+            if args.get(param, False):
+                found_base_params.append(param)
+        
+        if len(found_base_params) == 0:
+            raise WuWaException(
+                "错误：必须指定一个基础参数。\n"
+                f"可用的基础参数：{', '.join(['--' + p for p in self.BASE_PARAMS])}"
+            )
+        
+        if len(found_base_params) > 1:
+            raise WuWaException(
+                f"错误：只能指定一个基础参数，但发现了多个：{', '.join(['--' + p for p in found_base_params])}\n"
+                f"可用的基础参数：{', '.join(['--' + p for p in self.BASE_PARAMS])}"
+            )
+        
+        return found_base_params[0]
+    
+    def _check_duplicate_params(self, args: dict):
+        """检查参数重复使用（这里主要是逻辑检查，实际重复由argparse处理）"""
+        pass
+    
+    def _validate_stacking_params(self, base_param: str, args: dict) -> dict:
+        """验证叠加参数的有效性"""
+        rules = self.STACKING_RULES[base_param]
+        validated_args = args.copy()
+        
+        for forbidden_param in rules.get('forbidden', []):
+            if args.get(forbidden_param):
+                raise WuWaException(
+                    f"错误：基础参数 --{base_param} 不能与 --{forbidden_param} 参数叠加使用"
+                )
+        
+        for required_param in rules.get('required', []):
+            if not args.get(required_param):
+                raise WuWaException(
+                    f"错误：基础参数 --{base_param} 必须与 --{required_param} 参数叠加使用"
+                )
+        
+        first_level_params = []
+        for param in self.STACKABLE_PARAMS['first_level']:
+            if args.get(param):
+                first_level_params.append(param)
+        
+        if len(first_level_params) > 1:
+            raise WuWaException(
+                f"错误：一次叠加参数互斥，不能同时使用：{', '.join(['--' + p for p in first_level_params])}"
+            )
+        
+        allowed_params = rules.get('allowed', [])
+        for param in self.STACKABLE_PARAMS['first_level'] + self.STACKABLE_PARAMS['second_level']:
+            if args.get(param) and param not in allowed_params:
+                raise WuWaException(
+                    f"错误：基础参数 --{base_param} 不支持与 --{param} 参数叠加使用\n"
+                    f"支持的叠加参数：{', '.join(['--' + p for p in allowed_params]) if allowed_params else '无'}"
+                )
+        
+        return validated_args
+    
+    def _apply_default_stacking(self, base_param: str, args: dict) -> dict:
+        """应用默认叠加参数"""
+        rules = self.STACKING_RULES[base_param]
+        default_param = rules.get('default')
+        
+        if default_param:
+            has_first_level = any(args.get(param) for param in self.STACKABLE_PARAMS['first_level'])
+            
+            if not has_first_level:
+                args[default_param] = True
+        
+        return args
+    
+    def get_help_text(self) -> str:
+        """获取参数使用帮助文本"""
+        help_text = """
+参数使用说明：
 
+基础参数（必须且仅选一个）：
+  --run         启动服务端
+  --patch       应用补丁
+  --status      查看状态
+  --stop        停止服务端
+  --check       环境检查
+  --ddsr        下载服务端发行版
 
-class WuWaDebugRun(BaseWuWaComponent):
-    """调试运行类 - 在独立窗口中运行服务端以便调试"""
+可叠加参数：
+  --serveronly  仅服务端模式
+  --clientonly  仅客户端模式
+  --all         全部模式
+  --version     指定版本 (格式: x.y)
+
+参数叠加规则：
+  --run:
+    默认: --serveronly
+    可叠加: --serveronly, --clientonly, --all, --version x.y
+    
+  --patch:
+    必须叠加: --version x.y
+    不可叠加其他参数
+    
+  --status:
+    默认: --serveronly
+    可叠加: --serveronly, --clientonly, --all
+    不可叠加: --version
+    
+  --stop:
+    默认: --serveronly
+    仅可叠加: --serveronly
+    
+  --check:
+    默认: --all
+    可叠加: --serveronly, --clientonly, --all
+    不可叠加: --version
+    
+  --ddsr:
+    必须叠加: --version x.y
+    不可叠加其他参数
+
+使用示例：
+  python wuwa_server.py --run
+  python wuwa_server.py --run --clientonly
+  python wuwa_server.py --patch --version 1.0
+  python wuwa_server.py --status --all
+  python wuwa_server.py --stop
+  python wuwa_server.py --check --serveronly
+  python wuwa_server.py --ddsr --version 2.7
+"""
+        return help_text
+
+class WuWaNetworkTester(BaseWuWaComponent):
+    """网络延迟检测类 - 用于选择最优下载源"""
     
     def __init__(self, project_root: Path):
-        super().__init__(project_root, "DebugRun")
-        self.release_dir = self.project_root / WuWaConfig.PATHS["release_dir"]
-        self.selected_version = None
+        super().__init__(project_root, "NetworkTester")
+        self.timeout = 10
         
-        # 使用配置类中的服务器配置
-        self.servers = WuWaConfig.SERVERS
-    
-    def set_release_version(self, version: str) -> None:
-        """设置release版本目录"""
-        try:
-            if not version:
-                # 如果没有指定版本，尝试自动选择最新版本
-                base_release_dir = self.project_root / "release"
-                if base_release_dir.exists():
-                    version_dirs = [d for d in base_release_dir.iterdir() if d.is_dir() and d.name.replace('.', '').isdigit()]
-                    if version_dirs:
-                        # 按版本号排序，选择最新版本
-                        latest_version = max(version_dirs, key=lambda x: tuple(map(int, x.name.split('.'))))
-                        self.release_dir = latest_version
-                        self.selected_version = latest_version.name
-                        self.log_message(f"自动选择最新版本目录: {self.release_dir}")
-                    else:
-                        # 如果没有版本子目录，使用release根目录
-                        self.release_dir = base_release_dir
-                        self.selected_version = None
-                        self.log_message(f"使用release根目录: {self.release_dir}")
-                return
-                
-            candidate = self.project_root / "release" / version
-            if candidate.exists() and candidate.is_dir():
-                self.release_dir = candidate
-                self.selected_version = version
-                self.log_message(f"已选择版本目录: {self.release_dir}")
-            else:
-                self.log_message(f"[警告] 版本目录不存在: {candidate}，使用默认release目录", "WARNING")
-        except Exception as e:
-            self.log_message(f"[错误] 设置版本目录失败: {e}", "ERROR")
-    
-    def check_release_files(self) -> bool:
-        """检查release文件"""
-        self.log_message("=== 检查服务端可执行文件 ===")
-        
-        if not self.release_dir.exists():
-            self.log_message(f"[错误] Release目录不存在: {self.release_dir}", "ERROR")
-            return False
-        
-        try:
-            if self.selected_version:
-                self.log_message(f"[信息] 当前检查的版本目录: {self.release_dir}")
-        except Exception:
-            pass
-            
-        missing_files = []
-        for server in self.servers:
-            exe_path = self.release_dir / server["exe"]
-            if exe_path.exists():
-                self.log_message(f"[成功] {server['description']} - {server['exe']}")
-            else:
-                self.log_message(f"[错误] {server['description']} - {server['exe']} (缺失)", "ERROR")
-                missing_files.append(server["exe"])
-        
-        if missing_files:
-            self.log_message(f"[错误] 缺失文件: {', '.join(missing_files)}", "ERROR")
-            return False
-            
-        self.log_message("[成功] 所有服务端可执行文件检查完成")
-        return True
-    
-    def open_powershell_window(self, server: Dict[str, Any]) -> Optional[subprocess.Popen]:
-        """打开PowerShell窗口运行服务端"""
-        exe_path = self.release_dir / server["exe"]
-        
-        ps_command = f"""
-        Set-Location '{self.release_dir}'
-        Write-Host '=== {server['description']} ({server['name']}) ===' -ForegroundColor Green
-        Write-Host '端口: {server['port']}' -ForegroundColor Yellow
-        Write-Host '可执行文件: {server['exe']}' -ForegroundColor Yellow
-        Write-Host '工作目录: {self.release_dir}' -ForegroundColor Yellow
-        Write-Host '启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}' -ForegroundColor Yellow
-        Write-Host '按 Ctrl+C 停止服务端' -ForegroundColor Cyan
-        Write-Host '=' * 60 -ForegroundColor Green
-        Write-Host ''
-        .\\{server['exe']}
-        Write-Host ''
-        Write-Host '=== 服务端已退出 ===' -ForegroundColor Red
-        Write-Host '按任意键关闭窗口...'
-        Read-Host
+    def test_source_latency(self, url: str) -> float:
         """
+        测试指定URL的网络延迟
+        
+        Args:
+            url: 要测试的URL
+            
+        Returns:
+            float: 延迟时间（毫秒），失败时返回float('inf')
+        """
+        import urllib.request
+        import time
         
         try:
-            cmd = [
-                "powershell",
-                "-NoExit",
-                "-Command",
-                ps_command
-            ]
+            self.log_message(f"正在测试网络延迟: {url}", "INFO")
+            start_time = time.time()
             
-            process = subprocess.Popen(
-                cmd,
-                cwd=str(self.release_dir),
-                creationflags=(
-                    subprocess.CREATE_NEW_CONSOLE | 
-                    subprocess.CREATE_NEW_PROCESS_GROUP | 
-                    subprocess.DETACHED_PROCESS
-                ),
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                close_fds=True
-            )
+            req = urllib.request.Request(url, method='HEAD')
+            req.add_header('User-Agent', 'WuWa-Server-Downloader/1.0')
             
-            self.log_message(f"[成功] {server['description']} PowerShell窗口已打开 (PID: {process.pid})")
-            return process
-            
+            with urllib.request.urlopen(req, timeout=self.timeout) as response:
+                end_time = time.time()
+                latency = (end_time - start_time) * 1000
+                
+                self.log_message(f"网络延迟测试完成: {url} - {latency:.2f}ms", "INFO")
+                return latency
+                
         except Exception as e:
-            self.log_message(f"[错误] 打开 {server['description']} PowerShell窗口失败: {e}", "ERROR")
-            return None
+            self.log_message(f"网络延迟测试失败: {url} - {str(e)}", "ERROR")
+            return float('inf')
     
-    def run_debug_mode(self) -> bool:
-        """运行调试模式"""
-        self.log_message("=== 鸣潮服务端调试运行模式启动 ===")
+    def select_best_source(self, sources: list) -> str:
+        """
+        从多个下载源中选择延迟最低的源
         
-        if not self.check_release_files():
-            self.log_message("[错误] 可执行文件检查失败，无法启动调试模式", "ERROR")
-            return False
+        Args:
+            sources: 下载源URL列表
             
-        self.log_message("=" * 80, "INFO")
-        self.log_message("                    鸣潮服务端调试运行模式", "INFO")
-        self.log_message("=" * 80, "INFO")
-        self.log_message("📋 即将打开5个PowerShell窗口，每个窗口运行一个服务端：", "INFO")
+        Returns:
+            str: 最优下载源URL
+        """
+        if not sources:
+            raise WuWaNetworkException("没有可用的下载源")
         
-        for i, server in enumerate(self.servers, 1):
-            self.log_message(f"  {i}. {server['description']} (端口: {server['port']})", "INFO")
-            
-        self.log_message("[注意] 注意事项：", "INFO")
-        self.log_message("  - 每个服务端将在独立的PowerShell窗口中运行", "INFO")
-        self.log_message("  - 可以直接看到服务端的原始输出和错误信息", "INFO")
-        self.log_message("  - 在各个窗口中按 Ctrl+C 可停止对应的服务端", "INFO")
-        self.log_message("  - 建议按顺序启动：config → hotpatch → login → gateway → game", "INFO")
-        self.log_message("  - 如果某个服务端启动失败，请检查配置文件和数据库连接", "INFO")
+        if len(sources) == 1:
+            return sources[0]
         
-        confirm = input("\n是否继续启动调试模式？(Y/n): ").strip().lower()
-        if confirm not in ['', 'y', 'yes']:
-            self.log_message("用户取消调试模式启动")
-            return False
-            
-        self.log_message("=== 开始启动调试模式 ===")
+        self.log_message("开始网络延迟检测，选择最优下载源...", "INFO")
         
-        processes = []
+        best_source = None
+        best_latency = float('inf')
         
-        for i, server in enumerate(self.servers):
-            self.log_message(f"启动 {server['description']} ({i+1}/{len(self.servers)})...")
-            
-            process = self.open_powershell_window(server)
-            if process:
-                processes.append(process)
-                if i < len(self.servers) - 1:
-                    self.log_message(f"准备启动下一个服务端...")
-            else:
-                self.log_message(f"[错误] {server['description']} 启动失败", "ERROR")
-                
-        if processes:
-            self.log_message(f"[成功] 调试模式启动完成，已打开 {len(processes)} 个PowerShell窗口")
-            self.log_message("=== 调试模式运行中 ===")
-            
-            self.log_message("=" * 80, "INFO")
-            self.log_message("                    调试模式运行中", "INFO")
-            self.log_message("=" * 80, "INFO")
-            self.log_message(f"[成功] 已成功打开 {len(processes)} 个PowerShell窗口", "INFO")
-            self.log_message("[状态] 服务端状态：", "INFO")
-            
-            for i, server in enumerate(self.servers[:len(processes)]):
-                self.log_message(f"  {i+1}. {server['description']} - PowerShell窗口已打开", "INFO")
-                
-            self.log_message("[说明] 使用说明：", "INFO")
-            self.log_message("  - 每个服务端在独立的PowerShell窗口中运行", "INFO")
-            self.log_message("  - 可以直接查看服务端的输出和错误信息", "INFO")
-            self.log_message("  - 在对应窗口中按 Ctrl+C 停止服务端", "INFO")
-            self.log_message("  - 关闭PowerShell窗口也会停止对应的服务端", "INFO")
-            self.log_message("  - 按 Enter 键退出调试模式监控（不会停止服务端）", "INFO")
-            
-            input("\n按 Enter 键退出调试模式监控...")
-            
-            self.log_message("用户退出调试模式监控")
-            self.log_message("=== 调试模式监控结束 ===")
-            
-            self.log_message("[成功] 调试模式监控已退出", "INFO")
-            self.log_message("[提示] 服务端仍在各自的PowerShell窗口中运行", "INFO")
-            self.log_message("[提示] 如需停止服务端，请在对应的PowerShell窗口中按 Ctrl+C", "INFO")
-            
-            return True
-        else:
-            self.log_message("[错误] 没有成功启动任何服务端", "ERROR")
-            return False
+        for source in sources:
+            latency = self.test_source_latency(source)
+            if latency < best_latency:
+                best_latency = latency
+                best_source = source
+        
+        if best_source is None:
+            raise WuWaNetworkException("所有下载源都无法访问")
+        
+        self.log_message(f"选择最优下载源: {best_source} (延迟: {best_latency:.2f}ms)", "INFO")
+        return best_source
 
+class WuWaDownloader(BaseWuWaComponent):
+    """文件下载类 - 处理服务端发行版下载"""
+    
+    def __init__(self, project_root: Path):
+        super().__init__(project_root, "Downloader")
+        self.chunk_size = 8192
+        
+    def download_file(self, url: str, target_path: Path, show_progress: bool = True) -> bool:
+        """
+        下载文件到指定路径
+        
+        Args:
+            url: 下载URL
+            target_path: 目标文件路径
+            show_progress: 是否显示下载进度
+            
+        Returns:
+            bool: 下载是否成功
+        """
+        import urllib.request
+        import urllib.error
+        
+        try:
+            self.log_message(f"开始下载文件: {url}", "INFO")
+            self.log_message(f"目标路径: {target_path}", "INFO")
+            
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            req = urllib.request.Request(url)
+            req.add_header('User-Agent', 'WuWa-Server-Downloader/1.0')
+            
+            with urllib.request.urlopen(req) as response:
+                total_size = int(response.headers.get('Content-Length', 0))
+                downloaded_size = 0
+                
+                self.log_message(f"文件大小: {self._format_size(total_size)}", "INFO")
+                
+                with open(target_path, 'wb') as f:
+                    while True:
+                        chunk = response.read(self.chunk_size)
+                        if not chunk:
+                            break
+                        
+                        f.write(chunk)
+                        downloaded_size += len(chunk)
+                        
+                        if show_progress and total_size > 0:
+                            progress = (downloaded_size / total_size) * 100
+                            print(f"\r下载进度: {progress:.1f}% ({self._format_size(downloaded_size)}/{self._format_size(total_size)})", end='', flush=True)
+                
+                if show_progress:
+                    print()
+                
+                self.log_message(f"文件下载完成: {target_path}", "INFO")
+                return True
+                
+        except urllib.error.URLError as e:
+            self.log_message(f"下载失败 - 网络错误: {str(e)}", "ERROR")
+            return False
+        except Exception as e:
+            self.log_message(f"下载失败: {str(e)}", "ERROR")
+            return False
+    
+    def _format_size(self, size_bytes: int) -> str:
+        """格式化文件大小显示"""
+        if size_bytes == 0:
+            return "0B"
+        
+        size_names = ["B", "KB", "MB", "GB"]
+        i = 0
+        while size_bytes >= 1024 and i < len(size_names) - 1:
+            size_bytes /= 1024.0
+            i += 1
+        
+        return f"{size_bytes:.1f}{size_names[i]}"
+
+class WuWaExtractor(BaseWuWaComponent):
+    """解压缩类 - 处理下载文件的解压"""
+    
+    def __init__(self, project_root: Path):
+        super().__init__(project_root, "Extractor")
+        
+    def extract_zip(self, zip_path: Path, extract_to: Path) -> bool:
+        """
+        解压ZIP文件到指定目录
+        
+        Args:
+            zip_path: ZIP文件路径
+            extract_to: 解压目标目录
+            
+        Returns:
+            bool: 解压是否成功
+        """
+        import zipfile
+        
+        try:
+            self.log_message(f"开始解压文件: {zip_path}", "INFO")
+            self.log_message(f"解压目标: {extract_to}", "INFO")
+            
+            extract_to.mkdir(parents=True, exist_ok=True)
+            
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                file_list = zip_ref.namelist()
+                total_files = len(file_list)
+                
+                self.log_message(f"压缩包包含 {total_files} 个文件", "INFO")
+                
+                for i, file_name in enumerate(file_list, 1):
+                    try:
+                        zip_ref.extract(file_name, extract_to)
+                        print(f"\r解压进度: {i}/{total_files} ({(i/total_files)*100:.1f}%)", end='', flush=True)
+                    except Exception as e:
+                        self.log_message(f"解压文件失败: {file_name} - {str(e)}", "WARNING")
+                        continue
+                
+                print()
+                self.log_message(f"解压完成: {extract_to}", "INFO")
+                return True
+                
+        except zipfile.BadZipFile:
+            self.log_message(f"无效的ZIP文件: {zip_path}", "ERROR")
+            return False
+        except Exception as e:
+            self.log_message(f"解压失败: {str(e)}", "ERROR")
+            return False
+    
+    def cleanup_zip_file(self, zip_path: Path) -> bool:
+        """
+        清理下载的ZIP文件
+        
+        Args:
+            zip_path: 要删除的ZIP文件路径
+            
+        Returns:
+            bool: 清理是否成功
+        """
+        try:
+            if zip_path.exists():
+                zip_path.unlink()
+                self.log_message(f"已清理下载文件: {zip_path}", "INFO")
+                return True
+            return True
+        except Exception as e:
+            self.log_message(f"清理文件失败: {zip_path} - {str(e)}", "WARNING")
+            return False
 
 class WuWaManager(BaseWuWaComponent):
     """主管理类 - 整合所有功能模块"""
@@ -2252,50 +2301,31 @@ class WuWaManager(BaseWuWaComponent):
         project_root = Path(__file__).parent
         super().__init__(project_root, "Manager")
         
-        # 初始化各个组件
+        self.path_resolver = PathResolver(self.project_root)
+        
         self.checker = WuWaEnvironmentChecker(self.project_root)
         self.runner = WuWaRun(self.project_root)
         self.status = WuWaStatus(self.project_root)
-        self.logs = WuWaLogs(self.project_root)
-        self.debug_runner = WuWaDebugRun(self.project_root)
         self.config_manager = WuWaConfigManager(self.project_root)
         self.client_patcher = WuWaClientPatcher(self.project_root)
         
-        # 版本设置
+        self.network_tester = WuWaNetworkTester(self.project_root)
+        self.downloader = WuWaDownloader(self.project_root)
+        self.extractor = WuWaExtractor(self.project_root)
+        
         self.selected_version = None
     
     def set_version(self, version: str) -> None:
         """设置版本"""
         self.selected_version = version
         self.runner.set_release_version(version)
-        self.debug_runner.set_release_version(version)
         self.log_message(f"已设置版本: {version}")
     
     def show_help(self) -> None:
         """显示帮助信息"""
-        self.log_message("=" * 80, "INFO")
-        self.log_message("                    鸣潮服务端一键运行工具", "INFO")
-        self.log_message("=" * 80, "INFO")
-        self.log_message("可用命令:", "INFO")
-        self.log_message("  --run              启动所有服务端", "INFO")
-        self.log_message("  --stop             停止所有服务端", "INFO")
-        self.log_message("  --status           查看服务端状态", "INFO")
-        self.log_message("  --debug            调试模式运行", "INFO")
-        self.log_message("  --check            环境检查", "INFO")
-        self.log_message("    --server-only    仅检查服务端环境", "INFO")
-        self.log_message("    --client-only    仅检查客户端环境", "INFO")
-        self.log_message("  --patchclient      应用客户端补丁 (需要 --version)", "INFO")
-        self.log_message("  --runserverandclient 启动服务端并应用客户端补丁", "INFO")
-        self.log_message("  --version <ver>    指定版本目录", "INFO")
-        self.log_message("  --help             显示帮助信息", "INFO")
-        self.log_message("示例:", "INFO")
-        self.log_message("  python wuwa_server.py --run", "INFO")
-        self.log_message("  python wuwa_server.py --version 2.6 --run", "INFO")
-        self.log_message("  python wuwa_server.py --version 2.5 --patchclient", "INFO")
-        self.log_message("  python wuwa_server.py --version 2.6 --runserverandclient", "INFO")
-        self.log_message("  python wuwa_server.py --check --server-only", "INFO")
-        self.log_message("  python wuwa_server.py --check --client-only", "INFO")
-        self.log_message("=" * 80, "INFO")
+        validator = ArgumentValidator()
+        help_text = validator.get_help_text()
+        self.log_message(help_text, "INFO")
     
     def run(self) -> None:
         """主运行方法"""
@@ -2319,72 +2349,69 @@ class WuWaManager(BaseWuWaComponent):
             self.show_help()
             return None
         
-        parsed_args = {
-            'command': None,
-            'version': None,
-            'check_type': 'all',  # 新增：检查类型 (all, server, client)
-            'raw_args': args
-        }
-        
-        # 处理版本参数
-        if "--version" in args:
-            try:
-                idx = args.index("--version")
-                if idx + 1 < len(args):
-                    parsed_args['version'] = args[idx + 1]
-                    self.set_version(parsed_args['version'])
-                    # 移除版本参数
-                    args.pop(idx)  # 移除 --version
-                    args.pop(idx)  # 移除版本号
+        raw_args = {}
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            if arg.startswith('--'):
+                param_name = arg[2:]
+                
+                if param_name == 'version' and i + 1 < len(args) and not args[i + 1].startswith('--'):
+                    raw_args[param_name] = args[i + 1]
+                    i += 2
                 else:
-                    raise WuWaConfigException("--version 参数需要指定版本号")
-            except (IndexError, ValueError) as e:
-                raise WuWaConfigException(f"版本参数解析失败: {str(e)}")
+                    raw_args[param_name] = True
+                    i += 1
+            else:
+                i += 1
         
-        # 处理检查类型参数
-        if "--server-only" in args:
-            parsed_args['check_type'] = 'server'
-            args.remove("--server-only")
-        elif "--client-only" in args:
-            parsed_args['check_type'] = 'client'
-            args.remove("--client-only")
+        validator = ArgumentValidator()
+        try:
+            validated_args = validator.validate_arguments(raw_args)
+        except WuWaConfigException as e:
+            self.log_message(f"参数验证失败: {str(e)}", "ERROR")
+            raise e
         
-        # 确定主命令
-        commands = ["--check", "--run", "--stop", "--status", "--debug", 
-                   "--patchclient", "--runserverandclient"]
+        if validated_args.get('version'):
+            self.set_version(validated_args['version'])
         
-        for cmd in commands:
-            if cmd in args:
-                parsed_args['command'] = cmd
-                break
-        
-        if not parsed_args['command']:
-            raise WuWaConfigException("未指定有效的命令参数")
-        
-        return parsed_args
+        return validated_args
     
     def _execute_command(self, args: dict) -> None:
         """执行具体命令"""
-        command = args['command']
-        version = args['version']
-        check_type = args.get('check_type', 'all')
+        base_command = None
+        for param in ArgumentValidator.BASE_PARAMS:
+            if args.get(param):
+                base_command = param
+                break
         
-        if command == "--check":
-            self._handle_check_command(version, check_type)
-        elif command == "--run":
-            self._handle_run_command(version)
-        elif command == "--stop":
+        if not base_command:
+            raise WuWaException("未找到有效的基础命令", ErrorCodes.UNKNOWN_ERROR)
+        
+        version = args.get('version')
+        
+        execution_type = 'server'  # 默认值
+        if args.get('serveronly'):
+            execution_type = 'server'
+        elif args.get('clientonly'):
+            execution_type = 'client'
+        elif args.get('all'):
+            execution_type = 'all'
+        
+        if base_command == "check":
+            self._handle_check_command(version, execution_type)
+        elif base_command == "run":
+            self._handle_run_command(version, execution_type)
+        elif base_command == "stop":
             self._handle_stop_command()
-        elif command == "--status":
-            self._handle_status_command()
-        elif command == "--debug":
-            self._handle_debug_command()
-        elif command == "--patchclient":
-            self._handle_patchclient_command(version)
-        elif command == "--runserverandclient":
-            self._handle_runserverandclient_command(version)
+        elif base_command == "status":
+            self._handle_status_command(execution_type)
+        elif base_command == "patch":
+            self._handle_patch_command(version)
+        elif base_command == "ddsr":
+            self._handle_ddsr_command(version)
     
-    def _handle_check_command(self, version: Optional[str], check_type: str = 'all') -> None:
+    def _handle_check_command(self, version: Optional[str], check_type: str = 'server') -> None:
         """处理环境检查命令
         
         Args:
@@ -2407,7 +2434,7 @@ class WuWaManager(BaseWuWaComponent):
                 self.log_message("客户端环境检查通过", "INFO")
             else:
                 self.log_message("客户端环境检查未通过", "ERROR")
-        else:  # check_type == 'all'
+        else:
             self.log_message("开始完整环境检查...")
             success = self.checker.run_all_checks(target_version, check_client=True)
             if success:
@@ -2415,23 +2442,31 @@ class WuWaManager(BaseWuWaComponent):
             else:
                 self.log_message("环境检查未通过", "ERROR")
     
-    def _handle_run_command(self, version: Optional[str]) -> None:
-        """处理启动服务端命令"""
-        self.log_message("开始启动服务端...")
+    def _handle_run_command(self, version: Optional[str], execution_type: str = 'server') -> None:
+        """处理启动命令"""
         target_version = version or self.selected_version
         
-        # 设置runner的版本目录
+        if execution_type == 'client':
+            self.log_message("开始启动客户端...")
+            self._handle_client_run(target_version)
+        elif execution_type == 'server':
+            self.log_message("开始启动服务端...")
+            self._handle_server_run(target_version)
+        elif execution_type == 'all':
+            self.log_message("开始启动服务端和客户端...")
+            
+            self.log_message("正在启动服务端...")
+            self._handle_server_run(target_version)
+            
+            self.log_message("正在启动客户端...")
+            self._handle_client_run(target_version)
+        else:
+            self.log_message(f"未知的执行类型: {execution_type}", "ERROR")
+    
+    def _handle_server_run(self, target_version: str) -> None:
+        """处理服务端启动"""
         self.runner.set_release_version(target_version)
         
-        # 自动更新配置文件路径
-        self.log_message("正在检测并更新配置文件路径...", "INFO")
-        config_success = self.config_manager.process_all_configs(target_version)
-        if config_success:
-            self.log_message("配置文件路径已更新", "INFO")
-        else:
-            self.log_message("配置文件路径更新失败，将使用现有配置", "WARNING")
-        
-        # 先进行环境检查（仅检查服务端环境）
         if self.checker.run_all_checks(target_version, check_client=False):
             processes = self.runner.start_all_servers()
             if processes:
@@ -2443,7 +2478,109 @@ class WuWaManager(BaseWuWaComponent):
         else:
             self.log_message("环境检查未通过，无法启动服务端", "ERROR")
     
-    def _handle_stop_command(self) -> None:
+    def _handle_client_run(self, target_version: str) -> None:
+        """处理客户端启动"""
+        if self.checker.run_client_checks(target_version):
+            self.log_message("客户端环境检查通过", "INFO")
+            
+            success = self._generate_client_config()
+            if success:
+                self.log_message("客户端配置文件生成完成", "INFO")
+                
+                launcher_success = self._launch_client()
+                if launcher_success:
+                    self.log_message("客户端启动成功", "INFO")
+                else:
+                    self.log_message("客户端启动失败", "ERROR")
+            else:
+                self.log_message("客户端配置文件生成失败", "ERROR")
+        else:
+            self.log_message("客户端环境检查未通过，无法启动客户端", "ERROR")
+    
+    def _generate_client_config(self) -> bool:
+        """生成客户端config.toml配置文件"""
+        try:
+            client_binary_path = self.path_resolver.get_client_binary_path()
+            config_file_path = client_binary_path / "config.toml"
+            
+            dll_files = []
+            all_dll_files = []
+            for dll_file in client_binary_path.glob("*.dll"):
+                dll_path = str(dll_file).replace("\\", "/")
+                all_dll_files.append(dll_file.name)
+                if "wicked-waifus" in dll_file.name.lower():
+                    dll_files.append(dll_path)
+            
+            if not dll_files:
+                self.log_message("未找到包含'wicked-waifus'关键词的DLL文件，将使用空的dll_list", "WARNING")
+                if all_dll_files:
+                    self.log_message(f"发现的所有DLL文件: {', '.join(all_dll_files)}", "INFO")
+            else:
+                filtered_count = len(all_dll_files) - len(dll_files)
+                if filtered_count > 0:
+                    self.log_message(f"已过滤掉 {filtered_count} 个不相关的DLL文件", "INFO")
+            
+            config_content = f"""[launcher]
+executable_file = 'Client-Win64-Shipping.exe'
+cmd_line_args = '-fileopenlog'
+current_dir = '{str(client_binary_path).replace(chr(92), "/")}'
+dll_list = {dll_files}
+
+[environment]
+"""
+            
+            with open(config_file_path, 'w', encoding='utf-8') as f:
+                f.write(config_content)
+            
+            self.log_message(f"配置文件已生成: {config_file_path}", "INFO")
+            self.log_message(f"当前目录: {client_binary_path}", "INFO")
+            self.log_message(f"找到 {len(dll_files)} 个DLL文件", "INFO")
+            
+            return True
+            
+        except Exception as e:
+            self.log_message(f"生成配置文件失败: {str(e)}", "ERROR")
+            return False
+    
+    def _launch_client(self) -> bool:
+        """启动客户端launcher.exe（以管理员权限）"""
+        try:
+            client_binary_path = self.path_resolver.get_client_binary_path()
+            launcher_path = client_binary_path / "launcher.exe"
+            
+            if not launcher_path.exists():
+                self.log_message(f"未找到launcher.exe: {launcher_path}", "ERROR")
+                return False
+            
+            self.log_message(f"正在以管理员权限启动客户端: {launcher_path}", "INFO")
+            
+            powershell_cmd = [
+                "powershell.exe",
+                "-Command",
+                f"Start-Process -FilePath '{launcher_path}' -WorkingDirectory '{client_binary_path}' -Verb RunAs"
+            ]
+            
+            process = subprocess.Popen(
+                powershell_cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            
+            process.wait()
+            
+            if process.returncode == 0:
+                self.log_message("客户端已以管理员权限启动", "INFO")
+                return True
+            else:
+                self.log_message("启动客户端失败，可能用户拒绝了管理员权限请求", "ERROR")
+                return False
+            
+        except Exception as e:
+            self.log_message(f"启动客户端失败: {str(e)}", "ERROR")
+            return False
+
+    def _handle_stop_command(self, execution_type: str = 'server') -> None:
         """处理停止服务端命令"""
         self.log_message("开始停止服务端...", "INFO")
         success = self.runner.stop_all_servers()
@@ -2452,99 +2589,85 @@ class WuWaManager(BaseWuWaComponent):
         else:
             self.log_message("没有运行中的服务端", "INFO")
     
-    def _handle_status_command(self) -> None:
+    def _handle_status_command(self, execution_type: str = 'server') -> None:
         """处理状态查看命令"""
         self.status.show_status()
     
-    def _handle_debug_command(self) -> None:
-        """处理调试模式命令"""
-        self.log_message("开始调试模式...")
-        success = self.debug_runner.run_debug_mode()
-        if not success:
-            self.log_message("调试模式启动失败", "ERROR")
-    
-    def _handle_patchclient_command(self, version: Optional[str]) -> None:
+    def _handle_patch_command(self, version: str, execution_type: str = 'client') -> None:
         """处理客户端补丁命令"""
-        target_version = version or self.selected_version
-        if not target_version:
-            raise WuWaConfigException("--patchclient 需要指定版本参数，使用 --version <版本号> --patchclient")
-        
-        self.log_message(f"开始应用客户端补丁 (版本: {target_version})...")
-        success = self.client_patcher.patch_client(target_version)
+        self.log_message(f"开始应用客户端补丁 (版本: {version})...")
+        success = self.client_patcher.patch_client(version)
         if success:
-            self.log_message(f"客户端补丁应用完成 (版本: {target_version})", "INFO")
+            self.log_message(f"客户端补丁应用完成 (版本: {version})", "INFO")
             self.log_message("可以启动客户端了", "INFO")
         else:
-            self.log_message(f"客户端补丁应用失败 (版本: {target_version})", "ERROR")
-    
-    def _handle_runserverandclient_command(self, version: Optional[str]) -> None:
-        """处理同时运行服务端和客户端命令"""
-        target_version = version or self.selected_version
-        if not target_version:
-            raise WuWaConfigException("--runserverandclient 需要指定版本参数，使用 --version <版本号> --runserverandclient")
-        
-        self.log_message(f"开始运行服务端和客户端 (版本: {target_version})...")
-        
-        # 1. 启动服务端
-        self.log_message("=== 步骤 1: 启动服务端 ===", "INFO")
-        self._start_server_for_combined_mode(target_version)
-        
-        # 2. 应用客户端补丁
-        self.log_message("=== 步骤 2: 应用客户端补丁 ===", "INFO")
-        success = self.client_patcher.patch_client(target_version)
+            self.log_message(f"客户端补丁应用失败 (版本: {version})", "ERROR")
         if success:
             self.log_message("客户端补丁应用完成", "INFO")
         else:
             self.log_message("客户端补丁应用失败，但服务端已启动", "ERROR")
             return
     
-    def _start_server_for_combined_mode(self, version: str) -> None:
-        """为组合模式启动服务端"""
-        # 设置runner的版本目录
-        self.runner.set_release_version(version)
-        
-        # 自动更新配置文件路径
-        self.log_message("正在检测并更新配置文件路径...", "INFO")
-        config_success = self.config_manager.process_all_configs(version)
-        if config_success:
-            self.log_message("配置文件路径已更新", "INFO")
-        else:
-            self.log_message("配置文件路径更新失败，将使用现有配置", "WARNING")
-        
-        if self.checker.run_all_checks(version):
-            processes = self.runner.start_all_servers()
-            if processes:
-                self.log_message(f"已启动 {len(processes)} 个服务端", "INFO")
-                
-                # 3. 启动客户端
-                self.log_message("=== 步骤 3: 启动客户端 ===", "INFO")
-                try:
-                    client_dir = self.client_patcher.get_script_directory().parent / "Client" / "Client" / "Binaries" / "Win64"
-                    launcher_path = client_dir / "launcher.exe"
-                    
-                    if launcher_path.exists():
-                        subprocess.Popen([str(launcher_path)], cwd=str(client_dir))
-                        self.log_message("[成功] 客户端已启动", "INFO")
-                        self.log_message("=== 全部完成 ===", "INFO")
-                        self.log_message("[提示] 服务端和客户端都已启动", "INFO")
-                        self.log_message("[提示] 使用 --status 查看服务端状态", "INFO")
-                        self.log_message("[提示] 使用 --stop 停止服务端", "INFO")
-                    else:
-                        self.log_message(f"[错误] 客户端启动器不存在: {launcher_path}", "ERROR")
-                        
-                except Exception as e:
-                    self.log_message(f"[错误] 启动客户端失败: {e}", "ERROR")
+    def _handle_ddsr_command(self, version: str, execution_type: str = 'server') -> None:
+        """处理服务端发行版下载命令"""
+        try:
+            self.log_message(f"开始下载服务端发行版 (版本: {version})...", "INFO")
+            
+            sources = [
+                f"https://gitee.com/GamblerIX/Server/releases/download/v{version}/{version}.zip",
+                f"https://github.com/GamblerIX/Server/releases/download/v{version}/{version}.zip"
+            ]
+            
+            self.log_message("正在检测网络延迟，选择最优下载源...", "INFO")
+            best_source = self.network_tester.select_best_source(sources)
+            self.log_message(f"已选择下载源: {best_source}", "INFO")
+            
+            release_dir = self.path_resolver.get_server_release_path(version)
+            if not release_dir.exists():
+                release_dir.mkdir(parents=True, exist_ok=True)
+                self.log_message(f"创建发行版目录: {release_dir}", "INFO")
+            
+            zip_file_path = release_dir / f"{version}.zip"
+            
+            self.log_message(f"开始下载文件到: {zip_file_path}", "INFO")
+            download_success = self.downloader.download_file(best_source, zip_file_path)
+            
+            if not download_success:
+                raise WuWaNetworkException(f"下载失败: {best_source}")
+            
+            self.log_message("文件下载完成", "INFO")
+            
+            self.log_message("开始解压文件...", "INFO")
+            extract_success = self.extractor.extract_zip(zip_file_path, release_dir)
+            
+            if not extract_success:
+                raise WuWaFileException(f"解压失败: {zip_file_path}")
+            
+            self.log_message("文件解压完成", "INFO")
+            
+            self.log_message("清理临时文件...", "INFO")
+            cleanup_success = self.extractor.cleanup_zip_file(zip_file_path)
+            
+            if cleanup_success:
+                self.log_message("临时文件清理完成", "INFO")
             else:
-                raise WuWaServerException("服务端启动失败")
-        else:
-            raise WuWaEnvironmentException("环境检查未通过")
-
-
+                self.log_message("临时文件清理失败，但不影响功能", "WARNING")
+            
+            self.log_message(f"服务端发行版下载完成 (版本: {version})", "INFO")
+            self.log_message(f"文件已解压到: {release_dir}", "INFO")
+            
+        except WuWaException as e:
+            self.log_message(f"服务端发行版下载失败: {str(e)}", "ERROR")
+            raise
+        except Exception as e:
+            error_msg = f"服务端发行版下载过程中发生未知错误: {str(e)}"
+            self.log_message(error_msg, "ERROR")
+            raise WuWaException(error_msg)
+    
 def main():
     """主入口函数"""
     manager = WuWaManager()
     manager.run()
-
 
 if __name__ == "__main__":
     main()
